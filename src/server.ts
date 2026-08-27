@@ -10,10 +10,11 @@ app.register(api, { prefix: '/api' });
 app.register(uploads, { prefix: '/api' });
 
 const port = Number(process.env.PORT ?? 8787);
+const host = process.env.HOST ?? '127.0.0.1';
 
 app
-  .listen({ port, host: '127.0.0.1' })
-  .then(() => app.log.info(`pinball api on http://127.0.0.1:${port}  db=${DB_PATH}`))
+  .listen({ port, host })
+  .then(() => app.log.info(`pinball api on http://${host}:${port}  db=${DB_PATH}`))
   .catch((err) => {
     app.log.error(err);
     process.exit(1);
