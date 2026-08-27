@@ -4,7 +4,7 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS exploration (
+CREATE TABLE IF NOT EXISTS book (
   id          TEXT PRIMARY KEY,
   title       TEXT NOT NULL CHECK (length(trim(title)) > 0),
   intent      TEXT,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS exploration (
 
 CREATE TABLE IF NOT EXISTS question (
   id             TEXT PRIMARY KEY,
-  exploration_id TEXT NOT NULL REFERENCES exploration(id) ON DELETE CASCADE,
+  book_id        TEXT NOT NULL REFERENCES book(id) ON DELETE CASCADE,
   parent_id      TEXT REFERENCES question(id) ON DELETE CASCADE,
   title          TEXT NOT NULL CHECK (length(trim(title)) > 0),
   understanding  TEXT,
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS revision (
 
 CREATE TABLE IF NOT EXISTS source (
   id             TEXT PRIMARY KEY,
-  exploration_id TEXT NOT NULL REFERENCES exploration(id) ON DELETE CASCADE,
+  book_id        TEXT NOT NULL REFERENCES book(id) ON DELETE CASCADE,
   kind           TEXT NOT NULL
                  CHECK (kind IN ('book','article','paper','video','lecture','website',
                                  'experiment','conversation','personal_observation')),
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS review (
 );
 
 CREATE INDEX IF NOT EXISTS question_by_parent      ON question (parent_id);
-CREATE INDEX IF NOT EXISTS question_by_exploration ON question (exploration_id, parent_id, position);
+CREATE INDEX IF NOT EXISTS question_by_book        ON question (book_id, parent_id, position);
 CREATE INDEX IF NOT EXISTS question_due            ON question (next_review_at);
 CREATE INDEX IF NOT EXISTS relation_from           ON question_relation (from_id, kind);
 CREATE INDEX IF NOT EXISTS relation_to             ON question_relation (to_id, kind);

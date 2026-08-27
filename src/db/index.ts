@@ -12,13 +12,30 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 
 export const db = new DatabaseSync(DB_PATH);
 
-db.exec(readFileSync(resolve(here, 'schema.sql'), 'utf8'));
-
 /**
  * Migrations. Each is guarded so it runs once and is a no-op afterwards — enough
  * for a single-file local database; a real migration table can come with the first
  * deploy that has to preserve someone else's data.
  */
+const tableExists = (table: string): boolean =>
+  !!db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(table);
+
+// "Exploration" was renamed to "Book". Runs before schema.sql's CREATE TABLE IF NOT
+// EXISTS, which would otherwise silently create an empty `book` table and orphan
+// whatever was in the old `exploration` one.
+if (tableExists('exploration') && !tableExists('book')) {
+  db.exec('ALTER TABLE exploration RENAME TO book');
+  db.exec('ALTER TABLE question RENAME COLUMN exploration_id TO book_id');
+  db.exec('ALTER TABLE source RENAME COLUMN exploration_id TO book_id');
+  // RENAME COLUMN carries the old index along under its old name; schema.sql below
+  // creates its replacement under the new name, so drop the stale one.
+  db.exec('DROP INDEX IF EXISTS question_by_exploration');
+}
+
+db.exec(readFileSync(resolve(here, 'schema.sql'), 'utf8'));
+
 const columns = (table: string) =>
   new Set(
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),

@@ -2,7 +2,7 @@ import { db, newId, now, row, rows, tx } from './index.js';
 import {
   applyRating,
   nextReviewAt,
-  type Exploration,
+  type Book,
   type Question,
   type Rating,
   type RelationKind,
@@ -11,55 +11,55 @@ import {
   type State,
 } from '../types.js';
 
-/* ---------------------------------------------------------------- explorations */
+/* ---------------------------------------------------------------------- books */
 
-export function listExplorations(): (Exploration & {
+export function listBooks(): (Book & {
   question_count: number;
   open_count: number;
 })[] {
   return rows(
     db.prepare(`
-      SELECT e.*,
-             (SELECT count(*) FROM question q WHERE q.exploration_id = e.id) AS question_count,
-             (SELECT count(*) FROM question q WHERE q.exploration_id = e.id
+      SELECT b.*,
+             (SELECT count(*) FROM question q WHERE q.book_id = b.id) AS question_count,
+             (SELECT count(*) FROM question q WHERE q.book_id = b.id
                 AND q.state = 'unexplored' AND q.parked_at IS NULL) AS open_count
-        FROM exploration e
-       WHERE e.archived_at IS NULL
-       ORDER BY e.updated_at DESC
+        FROM book b
+       WHERE b.archived_at IS NULL
+       ORDER BY b.updated_at DESC
     `),
   );
 }
 
-export function getExploration(id: string): Exploration | undefined {
-  return row(db.prepare('SELECT * FROM exploration WHERE id = ?'), id);
+export function getBook(id: string): Book | undefined {
+  return row(db.prepare('SELECT * FROM book WHERE id = ?'), id);
 }
 
-export function createExploration(title: string, intent: string | null): Exploration {
+export function createBook(title: string, intent: string | null): Book {
   const id = newId();
   const ts = now();
   db.prepare(
-    'INSERT INTO exploration (id, title, intent, created_at, updated_at) VALUES (?,?,?,?,?)',
+    'INSERT INTO book (id, title, intent, created_at, updated_at) VALUES (?,?,?,?,?)',
   ).run(id, title, intent, ts, ts);
-  return getExploration(id)!;
+  return getBook(id)!;
 }
 
-export function updateExploration(
+export function updateBook(
   id: string,
   patch: { title?: string; intent?: string | null },
-): Exploration | undefined {
-  const current = getExploration(id);
+): Book | undefined {
+  const current = getBook(id);
   if (!current) return undefined;
-  db.prepare('UPDATE exploration SET title = ?, intent = ?, updated_at = ? WHERE id = ?').run(
+  db.prepare('UPDATE book SET title = ?, intent = ?, updated_at = ? WHERE id = ?').run(
     patch.title ?? current.title,
     patch.intent === undefined ? current.intent : patch.intent,
     now(),
     id,
   );
-  return getExploration(id)!;
+  return getBook(id)!;
 }
 
-export function deleteExploration(id: string): boolean {
-  return db.prepare('DELETE FROM exploration WHERE id = ?').run(id).changes > 0;
+export function deleteBook(id: string): boolean {
+  return db.prepare('DELETE FROM book WHERE id = ?').run(id).changes > 0;
 }
 
 /* ------------------------------------------------------------------- questions */
@@ -68,21 +68,21 @@ export function getQuestion(id: string): Question | undefined {
   return row(db.prepare('SELECT * FROM question WHERE id = ?'), id);
 }
 
-/** Depth-ordered tree for one exploration. */
-export function explorationTree(explorationId: string): (Question & { depth: number })[] {
+/** Depth-ordered tree for one book. */
+export function bookTree(bookId: string): (Question & { depth: number })[] {
   return rows(
     db.prepare(`
       WITH RECURSIVE tree AS (
         SELECT q.*, 0 AS depth, printf('%06d', q.position) AS path
           FROM question q
-         WHERE q.exploration_id = ? AND q.parent_id IS NULL
+         WHERE q.book_id = ? AND q.parent_id IS NULL
         UNION ALL
         SELECT q.*, t.depth + 1, t.path || '.' || printf('%06d', q.position)
           FROM question q JOIN tree t ON q.parent_id = t.id
       )
       SELECT * FROM tree ORDER BY path
     `),
-    explorationId,
+    bookId,
   );
 }
 
@@ -111,7 +111,7 @@ export function children(id: string): Question[] {
 }
 
 export function createQuestion(input: {
-  exploration_id: string;
+  book_id: string;
   parent_id?: string | null;
   title: string;
 }): Question {
@@ -121,16 +121,16 @@ export function createQuestion(input: {
   const next = row<{ n: number }>(
     db.prepare(
       `SELECT coalesce(max(position), -1) + 1 AS n FROM question
-        WHERE exploration_id = ? AND parent_id IS ?`,
+        WHERE book_id = ? AND parent_id IS ?`,
     ),
-    input.exploration_id,
+    input.book_id,
     parent,
   );
   return tx(() => {
     db.prepare(
-      `INSERT INTO question (id, exploration_id, parent_id, title, position, created_at, updated_at)
+      `INSERT INTO question (id, book_id, parent_id, title, position, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?)`,
-    ).run(id, input.exploration_id, parent, input.title, next?.n ?? 0, ts, ts);
+    ).run(id, input.book_id, parent, input.title, next?.n ?? 0, ts, ts);
     // Asking a subquestion is itself evidence the parent is being worked on.
     if (parent) {
       db.prepare(
@@ -138,10 +138,7 @@ export function createQuestion(input: {
           WHERE id = ? AND state = 'unexplored'`,
       ).run(ts, parent);
     }
-    db.prepare('UPDATE exploration SET updated_at = ? WHERE id = ?').run(
-      ts,
-      input.exploration_id,
-    );
+    db.prepare('UPDATE book SET updated_at = ? WHERE id = ?').run(ts, input.book_id);
     return getQuestion(id)!;
   });
 }
@@ -182,7 +179,7 @@ export function reviseUnderstanding(input: {
     db.prepare(
       'UPDATE question SET understanding = ?, state = ?, updated_at = ? WHERE id = ?',
     ).run(input.understanding, state, ts, q.id);
-    db.prepare('UPDATE exploration SET updated_at = ? WHERE id = ?').run(ts, q.exploration_id);
+    db.prepare('UPDATE book SET updated_at = ? WHERE id = ?').run(ts, q.book_id);
     return {
       question: getQuestion(q.id)!,
       revision: row<Revision>(db.prepare('SELECT * FROM revision WHERE id = ?'), revId)!,
@@ -264,25 +261,25 @@ export interface RelatedQuestion {
   id: string;
   title: string;
   state: State;
-  exploration_id: string;
-  exploration_title: string;
+  book_id: string;
+  book_title: string;
 }
 
 export function relations(questionId: string): RelatedQuestion[] {
   return rows(
     db.prepare(`
       SELECT r.id AS relation_id, r.kind, 'out' AS direction, r.note,
-             q.id, q.title, q.state, q.exploration_id, e.title AS exploration_title
+             q.id, q.title, q.state, q.book_id, b.title AS book_title
         FROM question_relation r
         JOIN question q ON q.id = r.to_id
-        JOIN exploration e ON e.id = q.exploration_id
+        JOIN book b ON b.id = q.book_id
        WHERE r.from_id = ?
       UNION ALL
       SELECT r.id AS relation_id, r.kind, 'in' AS direction, r.note,
-             q.id, q.title, q.state, q.exploration_id, e.title AS exploration_title
+             q.id, q.title, q.state, q.book_id, b.title AS book_title
         FROM question_relation r
         JOIN question q ON q.id = r.from_id
-        JOIN exploration e ON e.id = q.exploration_id
+        JOIN book b ON b.id = q.book_id
        WHERE r.to_id = ?
     `),
     questionId,
@@ -313,35 +310,47 @@ export function deleteRelation(id: string): boolean {
   return db.prepare('DELETE FROM question_relation WHERE id = ?').run(id).changes > 0;
 }
 
-/** Every edge in one exploration, for the map. Includes cross-exploration links (D6). */
-export function explorationEdges(explorationId: string) {
+/**
+ * Every edge touching one book, for the map. Includes links that cross into another
+ * book (D6) — the far endpoint's title and book carry along so a book-scoped map can
+ * render a cross-book connection without fetching every other book.
+ */
+export function bookEdges(bookId: string) {
   return rows<{
     from_id: string;
     to_id: string;
     kind: RelationKind;
     note: string | null;
+    from_title: string;
+    from_book_id: string;
+    from_book_title: string;
+    to_title: string;
+    to_book_id: string;
+    to_book_title: string;
     crosses: number;
   }>(
     db.prepare(`
       SELECT r.from_id, r.to_id, r.kind, r.note,
-             CASE WHEN a.exploration_id = b.exploration_id THEN 0 ELSE 1 END AS crosses
+             a.title AS from_title, a.book_id AS from_book_id, ab.title AS from_book_title,
+             b.title AS to_title, b.book_id AS to_book_id, bb.title AS to_book_title,
+             CASE WHEN a.book_id = b.book_id THEN 0 ELSE 1 END AS crosses
         FROM question_relation r
-        JOIN question a ON a.id = r.from_id
-        JOIN question b ON b.id = r.to_id
-       WHERE a.exploration_id = ? OR b.exploration_id = ?
+        JOIN question a ON a.id = r.from_id JOIN book ab ON ab.id = a.book_id
+        JOIN question b ON b.id = r.to_id   JOIN book bb ON bb.id = b.book_id
+       WHERE a.book_id = ? OR b.book_id = ?
     `),
-    explorationId,
-    explorationId,
+    bookId,
+    bookId,
   );
 }
 
 /* ----------------------------------------------------------------------- drill */
 
-export function dueQuestions(limit = 20): (Question & { exploration_title: string })[] {
+export function dueQuestions(limit = 20): (Question & { book_title: string })[] {
   return rows(
     db.prepare(`
-      SELECT q.*, e.title AS exploration_title
-        FROM question q JOIN exploration e ON e.id = q.exploration_id
+      SELECT q.*, b.title AS book_title
+        FROM question q JOIN book b ON b.id = q.book_id
        WHERE q.parked_at IS NULL
          AND q.state <> 'unexplored'
          AND q.understanding IS NOT NULL
@@ -393,12 +402,10 @@ export function sourcesFor(questionId: string) {
 
 /* ----------------------------------------------------------------------- stats */
 
-export function explorationStats(explorationId: string) {
+export function bookStats(bookId: string) {
   const counts = rows<{ state: State; n: number }>(
-    db.prepare(
-      'SELECT state, count(*) AS n FROM question WHERE exploration_id = ? GROUP BY state',
-    ),
-    explorationId,
+    db.prepare('SELECT state, count(*) AS n FROM question WHERE book_id = ? GROUP BY state'),
+    bookId,
   );
   const extra = row<{ parked: number; due: number; total: number }>(
     db.prepare(`
@@ -407,10 +414,10 @@ export function explorationStats(explorationId: string) {
         sum(CASE WHEN next_review_at IS NOT NULL AND next_review_at <= ?
                   AND parked_at IS NULL THEN 1 ELSE 0 END) AS due,
         count(*) AS total
-      FROM question WHERE exploration_id = ?
+      FROM question WHERE book_id = ?
     `),
     now(),
-    explorationId,
+    bookId,
   );
   return {
     by_state: Object.fromEntries(counts.map((c) => [c.state, c.n])) as Record<State, number>,
@@ -426,16 +433,16 @@ export interface IndexedQuestion {
   id: string;
   title: string;
   state: State;
-  exploration_id: string;
-  exploration_title: string;
+  book_id: string;
+  book_title: string;
 }
 
 /** Every question, for `[[ ]]` autocomplete and link resolution. */
 export function questionIndex(): IndexedQuestion[] {
   return rows(
     db.prepare(`
-      SELECT q.id, q.title, q.state, q.exploration_id, e.title AS exploration_title
-        FROM question q JOIN exploration e ON e.id = q.exploration_id
+      SELECT q.id, q.title, q.state, q.book_id, b.title AS book_title
+        FROM question q JOIN book b ON b.id = q.book_id
        ORDER BY q.title
     `),
   );

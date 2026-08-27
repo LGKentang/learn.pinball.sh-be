@@ -25,30 +25,30 @@ function text(v: unknown): string | null {
 }
 
 export async function api(app: FastifyInstance) {
-  /* ---------------------------------------------------------- explorations */
+  /* ----------------------------------------------------------------- books */
 
-  app.get('/explorations', async () => q.listExplorations());
+  app.get('/books', async () => q.listBooks());
 
-  app.post('/explorations', async (req, reply) => {
+  app.post('/books', async (req, reply) => {
     const body = req.body as Record<string, unknown>;
     const title = text(body?.title);
     if (!title) return reply.code(400).send({ error: 'title is required' });
-    return reply.code(201).send(q.createExploration(title, text(body?.intent)));
+    return reply.code(201).send(q.createBook(title, text(body?.intent)));
   });
 
-  app.get('/explorations/:id', async (req, reply) => {
+  app.get('/books/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const exploration = q.getExploration(id);
-    if (!exploration) return reply.code(404).send({ error: 'not found' });
+    const book = q.getBook(id);
+    if (!book) return reply.code(404).send({ error: 'not found' });
     return {
-      exploration,
-      tree: q.explorationTree(id),
-      edges: q.explorationEdges(id),
-      stats: q.explorationStats(id),
+      book,
+      tree: q.bookTree(id),
+      edges: q.bookEdges(id),
+      stats: q.bookStats(id),
     };
   });
 
-  app.patch('/explorations/:id', async (req, reply) => {
+  app.patch('/books/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
     const patch: { title?: string; intent?: string | null } = {};
@@ -58,13 +58,13 @@ export async function api(app: FastifyInstance) {
       patch.title = t;
     }
     if ('intent' in body) patch.intent = text(body.intent);
-    const updated = q.updateExploration(id, patch);
+    const updated = q.updateBook(id, patch);
     return updated ?? reply.code(404).send({ error: 'not found' });
   });
 
-  app.delete('/explorations/:id', async (req, reply) => {
+  app.delete('/books/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    return q.deleteExploration(id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' });
+    return q.deleteBook(id) ? reply.code(204).send() : reply.code(404).send({ error: 'not found' });
   });
 
   /* ------------------------------------------------------------- questions */
@@ -72,27 +72,24 @@ export async function api(app: FastifyInstance) {
   app.post('/questions', async (req, reply) => {
     const body = req.body as Record<string, unknown>;
     const title = text(body?.title);
-    const explorationId = text(body?.exploration_id);
+    const bookId = text(body?.book_id);
     if (!title) return reply.code(400).send({ error: 'title is required' });
-    if (!explorationId) return reply.code(400).send({ error: 'exploration_id is required' });
-    if (!q.getExploration(explorationId))
-      return reply.code(404).send({ error: 'exploration not found' });
+    if (!bookId) return reply.code(400).send({ error: 'book_id is required' });
+    if (!q.getBook(bookId)) return reply.code(404).send({ error: 'book not found' });
     const parentId = text(body?.parent_id);
     if (parentId && !q.getQuestion(parentId))
       return reply.code(404).send({ error: 'parent question not found' });
-    return reply
-      .code(201)
-      .send(q.createQuestion({ exploration_id: explorationId, parent_id: parentId, title }));
+    return reply.code(201).send(q.createQuestion({ book_id: bookId, parent_id: parentId, title }));
   });
 
-  /** Everything the Exploration view needs for one question, in one round trip. */
+  /** Everything the Book view needs for one question, in one round trip. */
   app.get('/questions/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const question = q.getQuestion(id);
     if (!question) return reply.code(404).send({ error: 'not found' });
     return {
       question,
-      exploration: q.getExploration(question.exploration_id),
+      book: q.getBook(question.book_id),
       ancestors: q.ancestors(id),
       children: q.children(id),
       relations: q.relations(id),

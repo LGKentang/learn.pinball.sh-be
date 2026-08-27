@@ -54,7 +54,7 @@ export const SOURCE_KINDS = [
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
-export interface Exploration {
+export interface Book {
   id: string;
   title: string;
   intent: string | null;
@@ -65,7 +65,7 @@ export interface Exploration {
 
 export interface Question {
   id: string;
-  exploration_id: string;
+  book_id: string;
   parent_id: string | null;
   title: string;
   understanding: string | null;

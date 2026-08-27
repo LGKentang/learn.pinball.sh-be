@@ -15,7 +15,7 @@ for (const t of [
   'revision',
   'question_relation',
   'question',
-  'exploration',
+  'book',
 ]) {
   db.exec(`DELETE FROM ${t}`);
 }
@@ -26,8 +26,8 @@ const daysAgo = (n: number) => {
   return d.toISOString();
 };
 
-function ask(explorationId: string, parentId: string | null, title: string) {
-  return q.createQuestion({ exploration_id: explorationId, parent_id: parentId, title });
+function ask(bookId: string, parentId: string | null, title: string) {
+  return q.createQuestion({ book_id: bookId, parent_id: parentId, title });
 }
 
 function answer(
@@ -56,7 +56,7 @@ function mark(id: string, state: State, dueIn?: Rating) {
 
 /* ------------------------------------------------------------------ physics */
 
-const physics = q.createExploration(
+const physics = q.createBook(
   'Understand how gravity works',
   'Be able to explain why objects of different mass fall at the same rate, and what that says about mass.',
 );
@@ -102,7 +102,7 @@ const relativity = ask(physics.id, fall.id, 'How does general relativity reframe
 
 /* ---------------------------------------------------------------- economics */
 
-const econ = q.createExploration(
+const econ = q.createBook(
   'Understand inflation',
   'Understand enough economics to explain why central banks raise interest rates during inflation.',
 );
@@ -144,7 +144,7 @@ q.setParked(bonds.id, true, 'Rabbit hole. Interesting, but not required by the l
 
 /* ----------------------------------------------------------------- japanese */
 
-const jp = q.createExploration(
+const jp = q.createBook(
   'Understand Japanese particles',
   'Be able to explain why a sentence uses は instead of が without guessing.',
 );
@@ -174,7 +174,7 @@ mark(waGa.id, 'understood', 'partially_knew');
 
 const newInfo = ask(jp.id, waGa.id, 'Why does が appear in answers to "who" questions?');
 
-/* ------------------------------- cross-exploration links (D6) and relations */
+/* ------------------------------------- cross-book links (D6) and relations */
 
 q.createRelation({
   from_id: rates.id,
@@ -197,7 +197,7 @@ q.createRelation({
 
 const srcId = newId();
 db.prepare(
-  'INSERT INTO source (id, exploration_id, kind, title, locator, created_at) VALUES (?,?,?,?,?,?)',
+  'INSERT INTO source (id, book_id, kind, title, locator, created_at) VALUES (?,?,?,?,?,?)',
 ).run(srcId, physics.id, 'video', 'Hammer and feather on the Moon (Apollo 15)', 'https://example.org/apollo15', now());
 db.prepare('INSERT INTO question_source (question_id, source_id, excerpt) VALUES (?,?,?)').run(
   airRes.id,
@@ -213,6 +213,6 @@ q.submitReview({ question_id: cpi.id, rating: 'didnt_know' });
 const counts = db.prepare('SELECT count(*) AS n FROM question').get() as { n: number };
 const due = q.dueQuestions().length;
 console.log(
-  `seeded: 3 explorations, ${counts.n} questions, ${due} due for drill\n` +
+  `seeded: 3 books, ${counts.n} questions, ${due} due for drill\n` +
     `        (parked: gravity/tides, economics/bonds — rabbit holes preserved, not deleted)`,
 );

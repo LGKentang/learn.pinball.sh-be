@@ -1,6 +1,6 @@
 /**
- * Kubernetes explorations. Additive — leaves everything else in the database alone,
- * and re-running replaces only the topics it owns, so it is safe to run repeatedly.
+ * Kubernetes books. Additive — leaves everything else in the database alone, and
+ * re-running replaces only the topics it owns, so it is safe to run repeatedly.
  *
  *   npm run seed:k8s
  */
@@ -16,10 +16,10 @@ const TOPICS = [
 
 // Replace only what this seed owns.
 for (const title of TOPICS) {
-  const existing = db.prepare('SELECT id FROM exploration WHERE title = ?').all(title) as {
+  const existing = db.prepare('SELECT id FROM book WHERE title = ?').all(title) as {
     id: string;
   }[];
-  for (const e of existing) q.deleteExploration(e.id);
+  for (const b of existing) q.deleteBook(b.id);
 }
 
 const daysAgo = (n: number) => {
@@ -28,8 +28,8 @@ const daysAgo = (n: number) => {
   return d.toISOString();
 };
 
-const ask = (exploration: string, parent: string | null, title: string) =>
-  q.createQuestion({ exploration_id: exploration, parent_id: parent, title });
+const ask = (book: string, parent: string | null, title: string) =>
+  q.createQuestion({ book_id: book, parent_id: parent, title });
 
 function answer(
   id: string,
@@ -57,11 +57,11 @@ function mark(id: string, state: State, due?: Rating) {
   }
 }
 
-function source(exploration: string, questionId: string, title: string, url: string, excerpt: string) {
+function source(book: string, questionId: string, title: string, url: string, excerpt: string) {
   const id = newId();
   db.prepare(
-    'INSERT INTO source (id, exploration_id, kind, title, locator, created_at) VALUES (?,?,?,?,?,?)',
-  ).run(id, exploration, 'website', title, url, now());
+    'INSERT INTO source (id, book_id, kind, title, locator, created_at) VALUES (?,?,?,?,?,?)',
+  ).run(id, book, 'website', title, url, now());
   db.prepare('INSERT INTO question_source (question_id, source_id, excerpt) VALUES (?,?,?)').run(
     questionId,
     id,
@@ -71,7 +71,7 @@ function source(exploration: string, questionId: string, title: string, url: str
 
 /* ------------------------------------------------------------ health checks */
 
-const health = q.createExploration(
+const health = q.createBook(
   TOPICS[0],
   'Be able to explain what happens to traffic when a pod is unhealthy, and choose the right probe without guessing.',
 );
@@ -142,7 +142,7 @@ source(
 
 /* -------------------------------------------------------------- scheduling */
 
-const sched = q.createExploration(
+const sched = q.createBook(
   TOPICS[1],
   'Be able to look at a Pending pod and say exactly which constraint is unsatisfied.',
 );
@@ -200,7 +200,7 @@ const pdb = ask(sched.id, null, 'Why did a drain hang instead of evicting my pod
 
 /* ----------------------------------------------------------------- services */
 
-const svc = q.createExploration(
+const svc = q.createBook(
   TOPICS[2],
   'Be able to explain what a Service actually is at the packet level, not just what it is for.',
 );
@@ -293,8 +293,8 @@ q.submitReview({
 q.submitReview({ question_id: affinity.id, rating: 'didnt_know' });
 
 const n = db.prepare(
-  `SELECT count(*) AS n FROM question WHERE exploration_id IN (
-     SELECT id FROM exploration WHERE title IN (?,?,?))`,
+  `SELECT count(*) AS n FROM question WHERE book_id IN (
+     SELECT id FROM book WHERE title IN (?,?,?))`,
 ).get(...TOPICS) as { n: number };
 
 console.log(
