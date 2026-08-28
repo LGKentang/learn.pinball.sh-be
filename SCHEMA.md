@@ -71,7 +71,7 @@ A bare before/after row cannot express that.
 
 **Resolution:** every revision has a `kind`, an optional `note` (the annotation
 itself), and an optional `triggered_by_question_id` — the subquestion whose
-exploration prompted the parent's revision. That column is what makes "finishing a
+exploring prompted the parent's revision. That column is what makes "finishing a
 subquestion should help the user return to and improve the parent answer" a
 queryable relationship rather than a hope.
 
@@ -89,12 +89,16 @@ blobs, with delta compression confined to packfiles and invisible to the object
 model. Storing deltas would make the trail O(n²) to render, since it shows every
 version at once, and one bad delta would poison every version after it.
 
-### D6. A question belongs to exactly one Exploration; relations may cross them
+### D6. A question belongs to exactly one Book; relations may cross them
 
-`question.exploration_id` is NOT NULL. `question_relation` deliberately does *not*
-constrain both endpoints to the same exploration — that is how "a discovery in one
-Exploration may connect to another" works. The Knowledge Map scopes to one exploration
-and renders cross-exploration edges as a distinct class.
+`question.book_id` is NOT NULL. `question_relation` deliberately does *not*
+constrain both endpoints to the same book — that is how "a discovery in one
+Book may connect to another" works. The Knowledge Map scopes to one book
+and renders cross-book edges as a distinct class.
+
+Naming note: `source.kind` has a literal enum value `'book'` (a physical or reference
+book cited as evidence). That predates this entity and is unrelated to it — the
+coincidence in name is not a bug.
 
 ### D7. `source` ships in the schema, not in the V1 UI
 
@@ -104,7 +108,7 @@ The table is cheap and D3 depends on it; rich source management is post-V1.
 ### D8. "Keep V1 small" is restored as a principle
 
 v1 of the spec ended its principles with "Keep V1 small." The rewrite dropped it while
-the surface area grew (Explorations, Learning Intent, rabbit holes, parking, Sources).
+the surface area grew (Books, Learning Intent, rabbit holes, parking, Sources).
 That principle was the document's immune system. Treat it as principle 13.
 
 ---
@@ -112,7 +116,7 @@ That principle was the document's immune system. Treat it as principle 13.
 ## Schema
 
 ```sql
-CREATE TABLE exploration (
+CREATE TABLE book (
   id          TEXT PRIMARY KEY,
   title       TEXT NOT NULL CHECK (length(trim(title)) > 0),
   intent      TEXT,              -- Learning Intent; nullable so creation stays frictionless
@@ -123,7 +127,7 @@ CREATE TABLE exploration (
 
 CREATE TABLE question (
   id             TEXT PRIMARY KEY,
-  exploration_id TEXT NOT NULL REFERENCES exploration(id) ON DELETE CASCADE,
+  book_id        TEXT NOT NULL REFERENCES book(id) ON DELETE CASCADE,
   parent_id      TEXT REFERENCES question(id) ON DELETE CASCADE,   -- D1
   title          TEXT NOT NULL CHECK (length(trim(title)) > 0),
   understanding  TEXT,           -- current mental model, in the learner's own words
@@ -139,7 +143,7 @@ CREATE TABLE question (
   CHECK (park_reason IS NULL OR parked_at IS NOT NULL)
 );
 
--- Non-hierarchical edges. May cross explorations (D6).
+-- Non-hierarchical edges. May cross books (D6).
 CREATE TABLE question_relation (
   id         TEXT PRIMARY KEY,
   from_id    TEXT NOT NULL REFERENCES question(id) ON DELETE CASCADE,
@@ -168,7 +172,7 @@ CREATE TABLE revision (
 
 CREATE TABLE source (
   id             TEXT PRIMARY KEY,
-  exploration_id TEXT NOT NULL REFERENCES exploration(id) ON DELETE CASCADE,
+  book_id        TEXT NOT NULL REFERENCES book(id) ON DELETE CASCADE,
   kind           TEXT NOT NULL
                  CHECK (kind IN ('book','article','paper','video','lecture','website',
                                  'experiment','conversation','personal_observation')),
@@ -197,7 +201,7 @@ CREATE TABLE review (
 );
 
 CREATE INDEX question_by_parent      ON question (parent_id);
-CREATE INDEX question_by_exploration ON question (exploration_id, parent_id, position);
+CREATE INDEX question_by_book        ON question (book_id, parent_id, position);
 CREATE INDEX question_due            ON question (next_review_at);
 CREATE INDEX relation_from           ON question_relation (from_id, kind);
 CREATE INDEX relation_to             ON question_relation (to_id, kind);
@@ -210,12 +214,12 @@ CREATE INDEX review_by_question      ON review (question_id, reviewed_at);
 
 ## Queries the views depend on
 
-**Exploration tree** — the main workspace:
+**Book tree** — the main workspace:
 
 ```sql
 WITH RECURSIVE tree AS (
   SELECT id, parent_id, title, state, parked_at, 0 AS depth, printf('%06d', position) AS path
-    FROM question WHERE exploration_id = ? AND parent_id IS NULL
+    FROM question WHERE book_id = ? AND parent_id IS NULL
   UNION ALL
   SELECT q.id, q.parent_id, q.title, q.state, q.parked_at, t.depth + 1,
          t.path || '.' || printf('%06d', q.position)
@@ -249,7 +253,7 @@ visualization exists:
 
 ```sql
 SELECT id, title, state FROM question
- WHERE exploration_id = ? AND state = 'unexplored' AND parked_at IS NULL
+ WHERE book_id = ? AND state = 'unexplored' AND parked_at IS NULL
  ORDER BY created_at;
 ```
 
@@ -262,6 +266,6 @@ SELECT id, title, state FROM question
 2. `question.parent_id` must not form a cycle. The FK cannot express this; walk
    ancestors on re-parent.
 3. Every `review` insert recomputes `state_after` and `next_review_at` by D4.
-4. Deleting an exploration cascades to its questions, revisions, reviews, and sources.
-   Cross-exploration relation rows vanish with their endpoint — acceptable, since the
+4. Deleting a book cascades to its questions, revisions, reviews, and sources.
+   Cross-book relation rows vanish with their endpoint — acceptable, since the
    edge is meaningless once one side is gone.

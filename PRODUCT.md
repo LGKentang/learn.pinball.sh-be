@@ -50,14 +50,14 @@ The system should preserve this journey rather than only storing the final polis
 
 ---
 
-## Learning Exploration
+## Books
 
-The primary container is an **Exploration**.
+The primary container is a **Book**.
 
-An Exploration represents something the learner wants to understand.
+A Book represents something the learner wants to understand.
 
 ```text
-Exploration:
+Book:
 Understand how evolution works
 
 Goal:
@@ -134,9 +134,9 @@ After resolving a subquestion, encourage returning to the parent and revising it
 
 ## Learning Intent
 
-Exploration can easily become an infinite rabbit hole.
+Exploring can easily become an infinite rabbit hole.
 
-Every Exploration therefore has a **Learning Intent**.
+Every Book therefore has a **Learning Intent**.
 
 Example:
 
@@ -289,7 +289,7 @@ This is **active recall**, not a traditional flashcard system.
 
 Questions should not be restricted to a tree.
 
-A discovery in one Exploration may connect to another.
+A discovery in one Book may connect to another.
 
 ```text
 Natural Selection
@@ -368,7 +368,7 @@ I understand X because...
 Start simple.
 
 ```text
-Exploration
+Book
 Question
 QuestionRelation
 Revision
@@ -379,7 +379,7 @@ Review
 Conceptually:
 
 ```text
-Exploration
+Book
 │
 ├── Learning Intent
 │
@@ -400,7 +400,7 @@ Do not introduce graph databases unless real usage demonstrates the need.
 
 ## Primary Views
 
-### Exploration
+### Book
 
 The main learning workspace.
 
@@ -516,7 +516,7 @@ The learner should remain responsible for constructing their mental model.
 Build only what is required to validate the core loop:
 
 ```text
-Create Exploration
+Create Book
       ↓
 Define learning intent
       ↓
@@ -539,7 +539,7 @@ Review later
 
 Prioritize:
 
-* Exploration creation
+* Book creation
 * Question creation
 * Recursive question navigation
 * Current understanding

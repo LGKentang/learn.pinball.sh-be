@@ -47,7 +47,7 @@ Backend (this repo):
 ```
 npm install
 npm run dev      # tsx watch, http://localhost:8787
-npm run seed     # reset + load the demo explorations
+npm run seed     # reset + load the demo books
 npm run seed:k8s # add the Kubernetes topics (additive, safe to re-run)
 npm run build    # tsc -> dist/
 npm start        # run built output
@@ -80,6 +80,6 @@ The database file is `learn.pinball.sh-be/data/pinball.db` (gitignored).
 
 ## V1 definition of done
 
-The loop closes end to end: create an exploration with an intent → ask a question →
+The loop closes end to end: create a book with an intent → ask a question →
 write current understanding → create subquestions → descend and return → revise the
 parent → mark understanding → get drilled on it later.
