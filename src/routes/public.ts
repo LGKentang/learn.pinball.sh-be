@@ -34,10 +34,14 @@ export function handleFromHost(hostHeader: string | undefined): string | null {
   return label;
 }
 
-const dateLabel = (iso: string | null | undefined): string =>
-  iso
-    ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-    : '';
+/** Same reason as escapeHtml: timestamptz arrives as a Date, not a string. */
+const dateLabel = (value: string | Date | null | undefined): string => {
+  if (!value) return '';
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+};
 
 function shell(
   handle: string,

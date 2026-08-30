@@ -14,7 +14,18 @@ export interface RenderOptions {
   resolveWikiLink?: (target: string) => string | null;
 }
 
-export function escapeHtml(s: string): string {
+/**
+ * Takes `unknown`, not `string`, on purpose. Postgres hands back `timestamptz`
+ * as a Date object while the row types say `string`, and a published page must
+ * never 500 because a value was not the type its type claimed.
+ */
+export function escapeHtml(value: unknown): string {
+  const s =
+    typeof value === 'string'
+      ? value
+      : value instanceof Date
+        ? value.toISOString()
+        : String(value ?? '');
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

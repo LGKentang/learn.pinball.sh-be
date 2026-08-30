@@ -16,8 +16,9 @@ export interface PageMeta {
   siteUrl: string;
   /** noindex for pages we do not want in search results (404s, empty profiles). */
   index?: boolean;
-  published?: string | null;
-  modified?: string | null;
+  /** Accepts what the database actually returns for timestamptz: a Date. */
+  published?: string | Date | null;
+  modified?: string | Date | null;
 }
 
 const CSS = `
@@ -104,9 +105,18 @@ footer.site .ball{
 @media print{ header.site{position:static; background:none} body{background:#fff; color:#111} }
 `;
 
+/** article:*_time wants ISO 8601, and an unparseable value is better omitted. */
+function isoTime(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 export function page(meta: PageMeta, body: string): string {
   const t = escapeHtml(meta.title);
   const d = escapeHtml(meta.description);
+  const published = isoTime(meta.published);
+  const modified = isoTime(meta.modified);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -124,8 +134,8 @@ ${meta.index === false ? '<meta name="robots" content="noindex">' : '<meta name=
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${t}">
 <meta name="twitter:description" content="${d}">
-${meta.published ? `<meta property="article:published_time" content="${escapeHtml(meta.published)}">` : ''}
-${meta.modified ? `<meta property="article:modified_time" content="${escapeHtml(meta.modified)}">` : ''}
+${published ? `<meta property="article:published_time" content="${published}">` : ''}
+${modified ? `<meta property="article:modified_time" content="${modified}">` : ''}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%23ff6b4a'/%3E%3C/svg%3E">
 <style>${CSS}</style>
 </head>
