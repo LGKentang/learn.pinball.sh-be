@@ -7,9 +7,11 @@ flashcard system.
 - Product spec: `PRODUCT.md` — read it before changing product behaviour. It is not
   loaded automatically.
 - Data model, and the decisions that resolve the spec's open questions: `SCHEMA.md`.
-  Decisions there are numbered `D1`–`D8`; cite them when changing behaviour they cover.
+  Decisions there are numbered `D1`–`D14`; cite them when changing behaviour they cover.
+- Cloudflare DNS/TLS, the Google OAuth client, the S3 bucket policy, and the env
+  reference: `DEPLOY.md`.
 
-All three live in this repo. The frontend is a sibling checkout (see below) and has
+All of these live in this repo. The frontend is a sibling checkout (see below) and has
 no copy of them — read them from here.
 
 ## Layout
@@ -32,13 +34,16 @@ Each has its own history. Never stage or commit across both in one operation.
 
 ## Stack
 
-- **Backend:** Node 24, TypeScript, Fastify, SQLite via built-in `node:sqlite`.
-  No native modules, no database server — `npm install && npm run dev` is the whole setup.
+- **Backend:** Node 24, TypeScript, Fastify, **PostgreSQL** via `pg` (D9).
+  `docker compose up -d db` gives you one locally.
 - **Frontend:** Vite, React 19, TypeScript. Plain CSS, no UI framework. CodeMirror 6
   powers the live-preview markdown editor.
-- **Uploads:** images go to local disk behind the `ImageStore` interface in
-  `src/storage.ts`; S3 slots in there without touching routes or stored markdown.
-- Postgres is the eventual target; `SCHEMA.md` documents the port.
+- **Auth:** Google OAuth, authorization-code flow, server-side session in an httpOnly
+  host-only cookie (D10). Signup is invite-only (D14).
+- **Published sites:** `<handle>.pinball.sh`, rendered to HTML by Fastify in
+  `src/render/` and served by `src/routes/public.ts` (D12).
+- **Uploads:** `ImageStore` in `src/storage.ts` — local disk or S3, selected by
+  `PINBALL_STORAGE`. Stored markdown always says `/api/uploads/<name>` either way (D13).
 
 ## Commands
 
@@ -46,12 +51,20 @@ Backend (this repo):
 
 ```
 npm install
-npm run dev      # tsx watch, http://localhost:8787
-npm run seed     # reset + load the demo books
-npm run seed:k8s # add the Kubernetes topics (additive, safe to re-run)
-npm run build    # tsc -> dist/
-npm start        # run built output
+cp .env.example .env         # then fill in at least SESSION_SECRET
+docker compose up -d db      # Postgres on :5432
+npm run migrate              # apply pending migrations (dev also does this at boot)
+npm run dev                  # tsx watch, http://localhost:8787
+npm run seed                 # reset + load the demo books for the seed account
+npm run seed:k8s             # add the Kubernetes topics (additive, safe to re-run)
+npm run import:sqlite        # one-off: carry a pre-Postgres data/pinball.db across
+npm run build                # tsc -> dist/
+npm start                    # run built output
 ```
+
+Without Google credentials, set `PINBALL_DEV_LOGIN` to an allowlisted address and the
+sign-in screen offers a local-developer button. It is refused outright when
+`NODE_ENV=production`.
 
 Frontend (`learn.pinball.sh-fe/`):
 
@@ -62,7 +75,13 @@ npm run build
 ```
 
 Run both; the frontend proxies `/api` to the backend, so no CORS config is needed in dev.
-The database file is `learn.pinball.sh-be/data/pinball.db` (gitignored).
+
+To look at a published site locally, address the backend by a tenant host — the
+handle is read from `Host`, and `*.localhost` is accepted for exactly this reason:
+
+```
+curl -H 'Host: alice.localhost' http://127.0.0.1:8787/
+```
 
 ## Conventions
 
@@ -74,9 +93,15 @@ The database file is `learn.pinball.sh-be/data/pinball.db` (gitignored).
   surface. See `SCHEMA.md` D8.
 - Frictionless subquestion creation is a hard requirement, not a nicety — if a change
   adds a step to that flow, it is the wrong change.
-- SQL lives in `src/db/`; route handlers stay thin.
-- Migrations are guarded blocks in `src/db/index.ts` — check before altering, so a
-  restart is always a no-op on an up-to-date database.
+- SQL lives in `src/db/`; route handlers stay thin. Learning content is in
+  `queries.ts`, accounts and publishing in `users.ts`.
+- **Scope every query on `user_id` inside the SQL** (D11). Never check ownership with
+  a separate read — a forgotten guard must return no rows, not someone else's book.
+- **`routes/public.ts` never reads `req.user`.** It is the only unauthenticated read
+  path; every query in it requires `published_at IS NOT NULL`. Do not add public
+  routes to `routes/api.ts`, which applies `requireUser` to the whole file.
+- Migrations are append-only entries in `src/db/migrations.ts`, recorded in
+  `schema_migration`. Never edit one that has shipped; add the next one.
 
 ## V1 definition of done
 

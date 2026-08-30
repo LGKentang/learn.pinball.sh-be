@@ -1,0 +1,136 @@
+/**
+ * The HTML shell for published pages.
+ *
+ * Self-contained on purpose: one document, inline CSS, no JavaScript and no build
+ * step. A published site is somebody's writing on the open web — it should render
+ * on a slow connection, in a reader mode, and long after the SPA has been rebuilt.
+ */
+import { escapeHtml } from './markdown.js';
+
+export interface PageMeta {
+  title: string;
+  description: string;
+  canonical: string;
+  /** Shown as the site name in the header and OG card. */
+  siteName: string;
+  siteUrl: string;
+  /** noindex for pages we do not want in search results (404s, empty profiles). */
+  index?: boolean;
+  published?: string | null;
+  modified?: string | null;
+}
+
+const CSS = `
+:root{
+  --bg:#0d0f14; --panel:#141821; --panel-2:#1a1f2b; --line:#262d3b;
+  --text:#e6e9f0; --dim:#99a1b3; --dimmer:#7f8899; --accent:#ff6b4a;
+  --blue:#5aa9ff; --green:#4ec9a0; --amber:#e2b352; --violet:#b18aff;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--blue); text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:44rem; margin:0 auto; padding:0 1.25rem 6rem}
+header.site{
+  border-bottom:1px solid var(--line); margin-bottom:2.5rem;
+  padding:1.1rem 0; position:sticky; top:0; background:rgba(13,15,20,.86);
+  backdrop-filter:blur(8px); z-index:5;
+}
+header.site .wrap{padding-bottom:0; display:flex; gap:.75rem; align-items:center; justify-content:space-between}
+.who{display:flex; gap:.7rem; align-items:center; min-width:0}
+.who img{width:30px; height:30px; border-radius:50%; flex:none}
+.who a{color:var(--text); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.by{font-family:var(--mono); font-size:11px; color:var(--dimmer); letter-spacing:.06em; text-transform:uppercase}
+h1{font-size:2rem; line-height:1.2; margin:.4rem 0 .5rem; letter-spacing:-.02em}
+.intent{color:var(--dim); font-size:1.05rem; margin:0 0 2rem}
+.bio{color:var(--dim); margin:.25rem 0 2rem}
+.meta{font-family:var(--mono); font-size:11.5px; color:var(--dimmer); letter-spacing:.05em; text-transform:uppercase}
+.books{list-style:none; padding:0; margin:1.5rem 0 0; display:grid; gap:.75rem}
+.books li{border:1px solid var(--line); border-radius:10px; background:var(--panel)}
+.books a.card{display:block; padding:1rem 1.15rem; color:inherit}
+.books a.card:hover{border-color:var(--accent); text-decoration:none; background:var(--panel-2)}
+.books h2{margin:0 0 .3rem; font-size:1.1rem}
+.books p{margin:0; color:var(--dim); font-size:.94rem}
+article{border-top:1px solid var(--line); padding-top:2rem; margin-top:2rem}
+article:first-of-type{border-top:0; margin-top:0}
+article h2{
+  font-size:1.3rem; line-height:1.3; margin:0 0 .75rem; letter-spacing:-.01em;
+  display:flex; gap:.6rem; align-items:baseline;
+}
+article h2 .q{color:var(--accent); font-family:var(--mono); font-size:.8rem; flex:none; padding-top:.15rem}
+article.d1{margin-left:0}
+article.d2,article.d3,article.d4,article.d5,article.d6{
+  border-top:0; border-left:2px solid var(--line); padding:.25rem 0 0 1.25rem; margin-top:1.75rem;
+}
+article.d2 h2,article.d3 h2{font-size:1.12rem}
+article.d4 h2,article.d5 h2,article.d6 h2{font-size:1rem}
+.body p{margin:0 0 1rem}
+.body h3,.body h4,.body h5,.body h6{margin:1.6rem 0 .6rem; line-height:1.3}
+.body ul,.body ol{margin:0 0 1rem; padding-left:1.35rem}
+.body li{margin:.25rem 0}
+.body img{max-width:100%; height:auto; border-radius:8px; border:1px solid var(--line); display:block; margin:1rem 0}
+.body code{
+  font-family:var(--mono); font-size:.86em; background:var(--panel-2);
+  border:1px solid var(--line); border-radius:4px; padding:.1em .35em;
+}
+.body pre{
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:.9rem 1rem; overflow-x:auto; margin:0 0 1rem;
+}
+.body pre code{background:none; border:0; padding:0; font-size:.86rem; line-height:1.55}
+.body blockquote{
+  margin:0 0 1rem; padding:.1rem 0 .1rem 1rem; border-left:3px solid var(--line); color:var(--dim);
+}
+.body hr{border:0; border-top:1px solid var(--line); margin:1.75rem 0}
+.wikilink{color:var(--violet)}
+.wikilink.dead{color:var(--dimmer); border-bottom:1px dotted var(--dimmer)}
+footer.site{
+  border-top:1px solid var(--line); margin-top:4rem; padding-top:1.25rem;
+  color:var(--dimmer); font-size:.86rem; display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+}
+footer.site .ball{
+  width:8px; height:8px; border-radius:50%; background:var(--accent);
+  display:inline-block; vertical-align:middle; margin-right:.4rem; box-shadow:0 0 10px var(--accent);
+}
+.empty{color:var(--dim); border:1px dashed var(--line); border-radius:10px; padding:2rem; text-align:center}
+@media (max-width:640px){ h1{font-size:1.6rem} .wrap{padding:0 1rem 4rem} }
+@media print{ header.site{position:static; background:none} body{background:#fff; color:#111} }
+`;
+
+export function page(meta: PageMeta, body: string): string {
+  const t = escapeHtml(meta.title);
+  const d = escapeHtml(meta.description);
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${t}</title>
+<meta name="description" content="${d}">
+<link rel="canonical" href="${escapeHtml(meta.canonical)}">
+${meta.index === false ? '<meta name="robots" content="noindex">' : '<meta name="robots" content="index, follow">'}
+<meta property="og:type" content="article">
+<meta property="og:title" content="${t}">
+<meta property="og:description" content="${d}">
+<meta property="og:url" content="${escapeHtml(meta.canonical)}">
+<meta property="og:site_name" content="${escapeHtml(meta.siteName)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${t}">
+<meta name="twitter:description" content="${d}">
+${meta.published ? `<meta property="article:published_time" content="${escapeHtml(meta.published)}">` : ''}
+${meta.modified ? `<meta property="article:modified_time" content="${escapeHtml(meta.modified)}">` : ''}
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%23ff6b4a'/%3E%3C/svg%3E">
+<style>${CSS}</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}

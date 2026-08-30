@@ -54,10 +54,29 @@ export const SOURCE_KINDS = [
 ] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
+export interface User {
+  id: string;
+  google_sub: string | null;
+  email: string;
+  name: string | null;
+  avatar_url: string | null;
+  /** The subdomain their published books live on. Null until they claim one. */
+  handle: string | null;
+  bio: string | null;
+  is_admin: boolean;
+  can_publish: boolean;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string | null;
+}
+
 export interface Book {
   id: string;
+  user_id: string;
   title: string;
   intent: string | null;
+  slug: string | null;
+  published_at: string | null;
   created_at: string;
   updated_at: string;
   archived_at: string | null;

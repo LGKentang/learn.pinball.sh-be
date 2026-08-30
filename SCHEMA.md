@@ -113,17 +113,170 @@ That principle was the document's immune system. Treat it as principle 13.
 
 ---
 
-## Schema
+### D9. Postgres, not SQLite
+
+`node:sqlite` was the right call for one learner on one laptop: no server, no native
+build, `npm run dev` and go. Accounts end that. Multi-tenancy wants row-level scoping
+across concurrent writers, and SQLite serialises every write against a single file —
+fine for one person, wrong for a shared deployment.
+
+The port cost less than it looks because the schema was already written for it
+(`TEXT` + `CHECK` rather than SQLite quirks). What changed:
+
+| SQLite | Postgres |
+| --- | --- |
+| `?` placeholders | `$1`, `$2`, … |
+| synchronous `.get()` / `.all()` | `await row()` / `await rows()` |
+| `.run().changes` | `await count()` (`rowCount`) |
+| `parent_id IS ?` | `parent_id IS NOT DISTINCT FROM $2` |
+| `printf('%06d', position)` | `lpad(position::text, 6, '0')` |
+| `INSERT` + catch unique violation | `ON CONFLICT … DO NOTHING` |
+| TEXT ISO timestamps | `TIMESTAMPTZ`, compared against `now()` |
+| guarded blocks in `db/index.ts` | ordered migrations in `db/migrations.ts` |
+
+`count(*)` and `sum()` return `bigint`, which node-postgres hands over as a *string*.
+A type parser in `db/index.ts` maps `INT8` to `Number`, because every bigint this app
+selects is a row count — without it `stats.total` silently became `"37"`.
+
+Migrations now record their id in `schema_migration` and hold a Postgres advisory
+lock while running, so several API replicas booting at once is safe.
+
+**The old data is not migrated in place.** `npm run import:sqlite` reads the SQLite
+file and inserts into Postgres with ids preserved and `ON CONFLICT DO NOTHING`, so it
+is re-runnable.
+
+### D10. Sessions are server-side; the browser holds an opaque cookie
+
+Google sign-in uses the authorization-code flow, exchanged server-side. The client
+secret never reaches the browser and no access token or JWT is handed to JavaScript.
+The only credential the frontend holds is an httpOnly cookie it cannot read.
+
+`user_session.id` is the **SHA-256 of the cookie token**, not the token. A leaked
+database backup therefore contains no usable session.
+
+The cookie is **host-only** — no `Domain` attribute. This is the load-bearing detail:
+published sites live at `<handle>.pinball.sh`, and a `Domain=.pinball.sh` cookie would
+be sent to every one of them, handing a reader's session token to any page they visit.
+
+The `id_token` from the token endpoint is decoded, not signature-verified. It arrived
+over TLS directly from Google in response to our own authenticated request, which is
+the one case Google's documentation says verification is unnecessary. Anything that
+arrives by another route must be verified.
+
+### D11. Ownership is a `user_id` on `book`, enforced in the query
+
+Every other table cascades from `book`, so one foreign key scopes the whole model.
+
+Ownership is filtered **inside the SQL**, never checked first and acted on second:
 
 ```sql
-CREATE TABLE book (
+UPDATE question q SET title = $3
+ WHERE q.id = $1
+   AND EXISTS (SELECT 1 FROM book b WHERE b.id = q.book_id AND b.user_id = $2)
+```
+
+A forgotten guard then returns zero rows instead of someone else's book, and a
+missing row and a forbidden row are indistinguishable from outside — existence is
+not something to leak.
+
+Relations still cross books freely (D6) but never cross accounts: `createRelation`
+requires both endpoints to belong to the caller, or a link would expose a stranger's
+question title through the map.
+
+### D12. Publishing is per book, on a subdomain, server-rendered
+
+A published book is readable at `<handle>.<base domain>/<slug>`. `book.published_at`
+is the entire switch: null is private, set is public.
+
+**One label deep, and no deeper.** Cloudflare Universal SSL covers `pinball.sh` and
+`*.pinball.sh` — a wildcard certificate matches exactly one label, so
+`k8s.alice.pinball.sh` would need Cloudflare for SaaS. Hence a subdomain per *person*
+and a path per book.
+
+Published pages are rendered to HTML by Fastify (`src/render/`), not by the SPA:
+crawlable, real link previews, no JavaScript, and they survive a broken frontend
+build. `routes/public.ts` is a separate file from `routes/api.ts` on purpose — the API
+applies `requireUser` to every route in the file, so a public handler can never be
+added to it by accident, and every query in the public path requires
+`published_at IS NOT NULL`.
+
+**Only current answers are published.** The Learning Trail, drill ratings, parked
+rabbit holes and unanswered questions all stay private. An unanswered question is a
+private to-do, not a publication.
+
+A handle cannot be changed once claimed. Every published URL contains it; changing it
+would break other people's links and free the old name for whoever wanted it.
+
+### D13. Images are public objects with unguessable names
+
+Markdown always stores `/api/uploads/<name>`. That path is the stable public identity
+of an image and never changes, whichever driver is behind it — switching
+`PINBALL_STORAGE` from `local` to `s3` needs no rewrite of anyone's notes. The route
+either streams the bytes or 302s to the CDN.
+
+The access control is 128 bits of randomness in the filename. Uploading requires a
+session; reading does not, because published pages have to load these from another
+origin and from strangers' browsers. The consequence, accepted deliberately: an image
+in an *unpublished* book is readable by anyone holding its URL.
+
+No SVG. It is a script container and these are served from domains we own.
+
+### D14. Signup is invite-only
+
+Handles are permanent public URLs on a domain we own, so open registration is an
+abuse surface before it is a growth channel. An address gets in via
+`PINBALL_ALLOWLIST`, a row in `signup_allowlist`, or by being
+`PINBALL_BOOTSTRAP_EMAIL`. A bare `@domain.com` entry admits a whole domain.
+
+Existing users are never re-checked: once in, they stay in.
+
+---
+
+## Schema
+
+> The executable source of truth is `src/db/migrations.ts`. What follows is the
+> shape and the reasoning; where the two disagree, the migrations are right.
+> Timestamps are `TIMESTAMPTZ` since D9 — shown as `TEXT` below only where the
+> original note predates the port.
+
+```sql
+-- A person. google_sub is null until their first sign-in, which is what lets the
+-- SQLite importer create the owner of the pre-OAuth data ahead of time (D9, D10).
+CREATE TABLE app_user (
   id          TEXT PRIMARY KEY,
-  title       TEXT NOT NULL CHECK (length(trim(title)) > 0),
-  intent      TEXT,              -- Learning Intent; nullable so creation stays frictionless
-  created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL,
-  archived_at TEXT
+  google_sub  TEXT UNIQUE,
+  email       TEXT NOT NULL UNIQUE,
+  name        TEXT,
+  avatar_url  TEXT,
+  handle      TEXT UNIQUE,       -- the subdomain; permanent once claimed (D12)
+  bio         TEXT,
+  is_admin    BOOLEAN NOT NULL DEFAULT false,
+  can_publish BOOLEAN NOT NULL DEFAULT true,
+  CHECK (handle IS NULL OR handle ~ '^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$')
 );
+
+-- id is the SHA-256 of the cookie token, never the token itself (D10).
+CREATE TABLE user_session (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE signup_allowlist (email TEXT PRIMARY KEY, note TEXT);
+
+CREATE TABLE book (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,  -- D11
+  title        TEXT NOT NULL CHECK (length(btrim(title)) > 0),
+  intent       TEXT,             -- Learning Intent; nullable so creation stays frictionless
+  slug         TEXT,             -- URL segment on the published site
+  published_at TIMESTAMPTZ,      -- null = private. The whole publishing switch (D12)
+  created_at   TIMESTAMPTZ NOT NULL,
+  updated_at   TIMESTAMPTZ NOT NULL,
+  archived_at  TIMESTAMPTZ,
+  CHECK (published_at IS NULL OR slug IS NOT NULL)
+);
+CREATE UNIQUE INDEX book_slug_per_user ON book (user_id, slug) WHERE slug IS NOT NULL;
 
 CREATE TABLE question (
   id             TEXT PRIMARY KEY,
@@ -269,3 +422,8 @@ SELECT id, title, state FROM question
 4. Deleting a book cascades to its questions, revisions, reviews, and sources.
    Cross-book relation rows vanish with their endpoint — acceptable, since the
    edge is meaningless once one side is gone.
+5. Every query outside `routes/public.ts` filters on the acting `user_id` in SQL.
+   Ownership is never established by a separate read.
+6. Nothing in `routes/public.ts` consults `req.user`. A published page renders
+   identically for its author and for a stranger — the only way to be certain a
+   draft cannot leak through a cache.
