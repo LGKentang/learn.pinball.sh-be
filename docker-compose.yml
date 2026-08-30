@@ -1,14 +1,18 @@
 # learn.pinball.sh — API and database.
 #
-# Development, just the database:
-#   docker compose up -d db          Postgres on 127.0.0.1:5432, then npm run dev
-#
 # Deployment, the whole backend:
 #   docker compose --profile full up -d --build
 #
-# The API publishes no ports under the `full` profile: it is reached by name from
-# the frontend container (BACKEND=pinball-api:8787) over the shared proxy network,
-# so TLS and routing stay with whatever proxy you run.
+# Development, database only, reachable from the host:
+#   docker compose -f docker-compose.yml -f compose.dev.yml up -d db
+#
+# Nothing is published to the host. Both services are reached by name over a
+# network your proxy is also on -- `pinball-api:8787` -- so TLS and routing stay
+# with the proxy. There is no `expose:` either: it is documentation only, and
+# containers sharing a network already reach every port on each other.
+#
+# Postgres is not reachable from outside `internal` at all; compose.dev.yml is
+# what publishes it, and only when you name that file explicitly.
 
 name: pinball
 
@@ -35,10 +39,9 @@ services:
       POSTGRES_DB: pinball
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Bound to localhost so a development machine can reach it without exposing
-    # Postgres to the network. Drop this block entirely on a deployed host.
-    ports:
-      - "127.0.0.1:5432:5432"
+    # No published port and no route off `internal`: the API is the only thing
+    # that talks to Postgres. For host-based development, where `npm run dev`
+    # needs to reach it, add compose.dev.yml (see the header).
     networks:
       - internal
     healthcheck:
@@ -59,8 +62,6 @@ services:
       HOST: 0.0.0.0
       PORT: "8787"
       NODE_ENV: production
-    expose:
-      - "8787"
     volumes:
       # Only used while PINBALL_STORAGE=local; with s3 nothing is written here.
       - uploads:/app/data/uploads

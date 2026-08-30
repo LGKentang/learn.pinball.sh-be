@@ -1,0 +1,11 @@
+# Host-based development only. Publishes Postgres on the loopback interface so a
+# `npm run dev` running outside Docker can reach it.
+#
+#   docker compose -f docker-compose.yml -f compose.dev.yml up -d db
+#
+# Deliberately a separate file rather than docker-compose.override.yml, which
+# compose loads automatically -- this must never apply to a deployment by accident.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"

@@ -52,7 +52,7 @@ Backend (this repo):
 ```
 npm install
 cp .env.example .env         # then fill in at least SESSION_SECRET
-docker compose up -d db      # Postgres on :5432
+docker compose -f docker-compose.yml -f compose.dev.yml up -d db   # Postgres on :5432
 npm run migrate              # apply pending migrations (dev also does this at boot)
 npm run dev                  # tsx watch, http://localhost:8787
 npm run seed                 # reset + load the demo books for the seed account
