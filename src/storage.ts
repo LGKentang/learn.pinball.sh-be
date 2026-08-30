@@ -101,9 +101,10 @@ function s3Store(): ImageStore {
           ContentType: contentType,
           // The name is random, so the bytes at a key never change.
           CacheControl: 'public, max-age=31536000, immutable',
-          // Most buckets now have ACLs disabled and grant read through a bucket
-          // policy instead, where sending an ACL is a hard error. Opt in only if
-          // the deployment actually wants object ACLs.
+          // Deliberately absent by default. AWS buckets made since 2023 have
+          // ACLs disabled, where sending one fails the upload; R2 has no object
+          // ACLs at all and grants public read via a custom domain instead. Both
+          // are the common case, so this is opt-in through S3_ACL.
           ...(process.env.S3_ACL ? { ACL: process.env.S3_ACL as 'public-read' } : {}),
         }),
       );

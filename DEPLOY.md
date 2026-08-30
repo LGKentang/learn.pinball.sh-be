@@ -11,12 +11,16 @@ Two records, both **proxied** (orange cloud):
 
 | Type | Name | Content | Proxy |
 | --- | --- | --- | --- |
-| `A` | `app` | your origin IP | Proxied |
+| `A` | `learn` | your origin IP | Proxied |
 | `A` | `*` | your origin IP | Proxied |
 
-`app.pinball.sh` serves the application. `*.pinball.sh` serves everyone's published
+`learn.pinball.sh` serves the application. `*.pinball.sh` serves everyone's published
 sites — the backend reads the handle from the `Host` header, so nothing needs to be
 added per user.
+
+The app's own hostname is never mistaken for a tenant: `handleFromHost` returns null
+for `PINBALL_APP_ORIGIN`'s host before it looks at anything else, and `learn` is in
+`RESERVED_HANDLES`, so nobody can claim it even if that check were removed.
 
 **The wildcard is one label deep and no deeper.** Cloudflare Universal SSL issues a
 certificate for `pinball.sh` and `*.pinball.sh` only. `alice.pinball.sh` is covered;
@@ -50,14 +54,14 @@ client ID → Web application**.
 **Authorised JavaScript origins**
 
 ```
-https://app.pinball.sh
+https://learn.pinball.sh
 http://localhost:5173          (development)
 ```
 
 **Authorised redirect URIs**
 
 ```
-https://app.pinball.sh/api/auth/google/callback
+https://learn.pinball.sh/api/auth/google/callback
 http://localhost:5173/api/auth/google/callback
 ```
 
@@ -72,7 +76,7 @@ Then:
 ```bash
 GOOGLE_CLIENT_ID=…apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=…
-GOOGLE_REDIRECT_URI=https://app.pinball.sh/api/auth/google/callback
+GOOGLE_REDIRECT_URI=https://learn.pinball.sh/api/auth/google/callback
 ```
 
 ### Who can sign in
@@ -87,7 +91,7 @@ PINBALL_BOOTSTRAP_EMAIL=you@example.com             # also becomes admin
 …or a row in `signup_allowlist`, which the admin API manages:
 
 ```bash
-curl -X POST https://app.pinball.sh/api/admin/allowlist \
+curl -X POST https://learn.pinball.sh/api/admin/allowlist \
   -H 'content-type: application/json' -b "$COOKIE" \
   -d '{"email":"friend@example.com","note":"beta"}'
 ```
@@ -136,7 +140,31 @@ ACLs disabled, and sending one is then a hard error:
 The IAM user needs only `s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on
 `arn:aws:s3:::pinball-uploads/*`.
 
-Set `S3_ACL=public-read` **only** if the bucket still has object ACLs enabled.
+Set `S3_ACL=public-read` **only** if the bucket still has object ACLs enabled — an
+older AWS bucket. Leave it unset everywhere else; on a modern AWS bucket it fails the
+upload, and R2 has no object ACLs to set.
+
+### Cloudflare R2
+
+R2 differs from AWS in three ways that matter here:
+
+```bash
+S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com   # account host only
+S3_BUCKET=learn-pinball                                     # NOT part of the endpoint
+S3_REGION=auto                                              # a real region fails signing
+S3_PUBLIC_BASE=https://cdn.pinball.sh
+# S3_ACL stays unset — R2 has no object ACLs
+```
+
+There is **no bucket policy to apply**: the JSON above is AWS-only. Public read comes
+from **R2 → your bucket → Settings → Custom Domains**, which provisions DNS and a
+certificate and puts Cloudflare's cache in front. The `r2.dev` development URL on the
+same page works too, but Cloudflare rate-limits it and says not to use it in
+production.
+
+`S3_PUBLIC_BASE` must be that custom domain, never the `r2.cloudflarestorage.com`
+endpoint — the S3 API requires signed requests and answers an anonymous `<img>` with
+a 401.
 
 ### Switching from local disk
 
@@ -160,13 +188,13 @@ NODE_ENV=production
 DATABASE_URL=postgres://user:pass@db:5432/pinball
 PGSSL=require                     # managed Postgres only
 
-PINBALL_APP_ORIGIN=https://app.pinball.sh
+PINBALL_APP_ORIGIN=https://learn.pinball.sh
 PINBALL_BASE_DOMAIN=pinball.sh
 SESSION_SECRET=                   # openssl rand -base64 32
 
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=https://app.pinball.sh/api/auth/google/callback
+GOOGLE_REDIRECT_URI=https://learn.pinball.sh/api/auth/google/callback
 
 PINBALL_ALLOWLIST=
 PINBALL_BOOTSTRAP_EMAIL=
@@ -203,7 +231,7 @@ backend — that is the published-sites path. Build it with:
 
 ```bash
 docker build -t pinball-fe ../learn.pinball.sh-fe
-docker run -e APP_HOST=app.pinball.sh -e BACKEND=api:8787 -p 80:80 pinball-fe
+docker run -e APP_HOST=learn.pinball.sh -e BACKEND=api:8787 -p 80:80 pinball-fe
 ```
 
 `proxy_set_header Host $host` is load-bearing in both blocks: the handle is read from
@@ -227,7 +255,7 @@ it, so the data is simply there. Ids are preserved and every insert is
 ## Checks after a deploy
 
 ```bash
-curl -s https://app.pinball.sh/health
+curl -s https://learn.pinball.sh/health
 # {"ok":true,"storage":"s3","domain":"pinball.sh"}
 
 # an unclaimed subdomain should be a 404 page, not an error

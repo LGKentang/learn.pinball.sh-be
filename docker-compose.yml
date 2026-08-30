@@ -1,39 +1,83 @@
-# Local development stack. `docker compose up -d db` is enough to run `npm run dev`
-# against a real Postgres; the `api` service is here so the same compose file can
-# stand the whole backend up in one go when you want to check the built image.
+# learn.pinball.sh — API and database.
+#
+# Development, just the database:
+#   docker compose up -d db          Postgres on 127.0.0.1:5432, then npm run dev
+#
+# Deployment, the whole backend:
+#   docker compose --profile full up -d --build
+#
+# The API publishes no ports under the `full` profile: it is reached by name from
+# the frontend container (BACKEND=pinball-api:8787) over the shared proxy network,
+# so TLS and routing stay with whatever proxy you run.
+
+name: pinball
+
+networks:
+  # Private: only the API talks to Postgres, and it is never routable from outside.
+  internal:
+  # Shared with the frontend and your proxy. Create it once if it does not exist:
+  #   docker network create reverse-proxy-network
+  reverse-proxy-network:
+    external: true
+
+volumes:
+  pgdata:
+  uploads:
+
 services:
   db:
+    container_name: pinball-db
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: pinball
-      POSTGRES_PASSWORD: pinball
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-pinball}"
       POSTGRES_DB: pinball
-    ports:
-      - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Bound to localhost so a development machine can reach it without exposing
+    # Postgres to the network. Drop this block entirely on a deployed host.
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - internal
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U pinball -d pinball']
+      test: ["CMD-SHELL", "pg_isready -U pinball -d pinball"]
       interval: 5s
       timeout: 3s
       retries: 20
 
   api:
-    profiles: ['full']
+    container_name: pinball-api
+    profiles: ["full"]
     build: .
+    image: pinball-api:latest
+    restart: unless-stopped
     env_file: [.env]
     environment:
-      DATABASE_URL: postgres://pinball:pinball@db:5432/pinball
+      DATABASE_URL: "postgres://pinball:${POSTGRES_PASSWORD:-pinball}@db:5432/pinball"
       HOST: 0.0.0.0
-      PORT: '8787'
-    ports:
-      - '8787:8787'
+      PORT: "8787"
+      NODE_ENV: production
+    expose:
+      - "8787"
+    volumes:
+      # Only used while PINBALL_STORAGE=local; with s3 nothing is written here.
+      - uploads:/app/data/uploads
+    networks:
+      - internal
+      - reverse-proxy-network
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - uploads:/app/data/uploads
-
-volumes:
-  pgdata:
-  uploads:
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
