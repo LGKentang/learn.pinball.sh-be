@@ -19,6 +19,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.716.0",
     "@fastify/cookie": "^11.0.2",
+    "@prometheus-io/client": "^0.16.1",
     "fastify": "^5.2.1",
     "pg": "^8.13.1"
   },

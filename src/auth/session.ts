@@ -55,6 +55,10 @@ export function sessionPlugin(app: FastifyInstance): void {
     if (!token) return;
     try {
       req.user = (await useSession(hashToken(token))) ?? null;
+      // Every subsequent log line for this request — including Fastify's own
+      // access log on the way out — now carries userId for free, so "what did
+      // this person do" is a Loki filter, not a correlation exercise.
+      if (req.user) req.log = req.log.child({ userId: req.user.id });
     } catch (err) {
       req.log.warn({ err }, 'session lookup failed');
     }

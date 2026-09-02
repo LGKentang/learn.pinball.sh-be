@@ -44,6 +44,10 @@ Each has its own history. Never stage or commit across both in one operation.
   `src/render/` and served by `src/routes/public.ts` (D12).
 - **Uploads:** `ImageStore` in `src/storage.ts` — local disk or S3, selected by
   `PINBALL_STORAGE`. Stored markdown always says `/api/uploads/<name>` either way (D13).
+- **Observability:** Prometheus metrics at `GET /metrics` (`src/metrics.ts`) and
+  structured JSON logs (Fastify's built-in Pino, configured in `server.ts`) — field
+  reference and LogQL examples in `DEPLOY.md` §7. New metric labels must stay a
+  closed, bounded set (an enum, a route pattern) — never a raw id or free text.
 
 ## Commands
 

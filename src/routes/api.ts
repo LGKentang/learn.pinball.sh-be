@@ -9,6 +9,7 @@ import {
   slugify,
 } from '../db/users.js';
 import { requireAdmin, requireUser } from '../auth/session.js';
+import { drillReviews, publishActions, questionsCreated, revisionsWritten } from '../metrics.js';
 import { env } from '../env.js';
 import {
   RATINGS,
@@ -100,6 +101,8 @@ export async function api(app: FastifyInstance) {
 
     if (!publish) {
       const off = await setPublished(me.id, id, false, null);
+      publishActions.inc({ action: 'unpublish' });
+      req.log.info({ event: 'book_unpublished', bookId: id }, 'book unpublished');
       return { published: false, slug: off?.slug ?? null, url: null };
     }
 
@@ -116,6 +119,8 @@ export async function api(app: FastifyInstance) {
 
     const on = await setPublished(me.id, id, true, settled);
     if (!on) return reply.code(404).send({ error: 'not found' });
+    publishActions.inc({ action: 'publish' });
+    req.log.info({ event: 'book_published', bookId: id, slug: on.slug }, 'book published');
     return {
       published: true,
       slug: on.slug,
@@ -140,6 +145,7 @@ export async function api(app: FastifyInstance) {
     // A book or parent that is missing and one that belongs to someone else are
     // the same answer on purpose: existence is not something to leak.
     if (!created) return reply.code(404).send({ error: 'book or parent question not found' });
+    questionsCreated.inc();
     return reply.code(201).send(created);
   });
 
@@ -209,6 +215,7 @@ export async function api(app: FastifyInstance) {
       triggered_by_question_id: text(body.triggered_by_question_id),
     });
     if (!result) return reply.code(404).send({ error: 'not found' });
+    revisionsWritten.inc({ kind: result.revision.kind });
     // A [[link]] the learner typed is a connection they made; let the graph follow.
     const linked = await q.syncWikilinks(me, id, body.understanding);
     return { ...result, linked };
@@ -264,7 +271,9 @@ export async function api(app: FastifyInstance) {
       rating: body.rating,
       recalled: text(body.recalled),
     });
-    return result ?? reply.code(404).send({ error: 'not found' });
+    if (!result) return reply.code(404).send({ error: 'not found' });
+    drillReviews.inc({ rating: body.rating });
+    return result;
   });
 
   /* ----------------------------------------------------------------- admin */

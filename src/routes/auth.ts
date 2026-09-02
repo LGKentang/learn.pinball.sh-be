@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { authSignins } from '../metrics.js';
 import { env, handleProblem, isProduction } from '../env.js';
 import { authorizeUrl, exchangeCode, type GoogleIdentity } from '../auth/google.js';
 import {
@@ -99,11 +100,26 @@ export async function auth(app: FastifyInstance) {
     return reply.redirect(authorizeUrl(state));
   });
 
+  // The bounded set of reasons this route produces itself, for the metric label —
+  // Google's own `error` query param is free text it does not control, so that
+  // branch below reports as 'google_error' on the metric and keeps the real
+  // string only in the log line and the redirect, never on a Prometheus label.
+  const KNOWN_FAIL_REASONS = new Set([
+    'state_mismatch',
+    'missing_code',
+    'exchange_failed',
+    'not_allowed',
+    'unverified_email',
+  ]);
+
   app.get('/auth/google/callback', async (req, reply) => {
     const { code, state, error } = req.query as Record<string, string | undefined>;
     const checked = takeOAuthState(req, reply, state ?? '');
-    const fail = (reason: string) =>
-      reply.redirect(`${env.appOrigin}/?auth_error=${encodeURIComponent(reason)}`);
+    const fail = (reason: string) => {
+      authSignins.inc({ result: KNOWN_FAIL_REASONS.has(reason) ? reason : 'google_error' });
+      req.log.info({ event: 'auth_signin', result: reason }, 'sign-in failed');
+      return reply.redirect(`${env.appOrigin}/?auth_error=${encodeURIComponent(reason)}`);
+    };
 
     if (error) return fail(error);
     if (!checked.ok) return fail('state_mismatch');
@@ -121,6 +137,8 @@ export async function auth(app: FastifyInstance) {
     if (!result.ok) return fail(result.reason);
 
     await startSession(reply, result.user, req.headers['user-agent'] ?? null);
+    authSignins.inc({ result: 'success' });
+    req.log.info({ event: 'auth_signin', result: 'success', userId: result.user.id }, 'signed in');
     return reply.redirect(checked.returnTo);
   });
 
@@ -187,8 +205,17 @@ export async function auth(app: FastifyInstance) {
       patch.name = name;
     }
 
-    const updated = await updateProfile(me.id, patch);
-    return { user: publicUser(updated ?? me) };
+    try {
+      const updated = await updateProfile(me.id, patch);
+      return { user: publicUser(updated ?? me) };
+    } catch (err) {
+      // The availability check above is not atomic with this write, so two
+      // requests claiming the same handle can both pass it; app_user.handle's
+      // UNIQUE constraint is what actually decides, and the loser lands here.
+      if ((err as { code?: string }).code === '23505')
+        return reply.code(409).send({ error: 'that handle is taken' });
+      throw err;
+    }
   });
 
   /** Live feedback while typing a handle, so claiming one is not trial and error. */

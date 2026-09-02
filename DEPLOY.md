@@ -252,6 +252,104 @@ it, so the data is simply there. Ids are preserved and every insert is
 
 ---
 
+## 7. Observability
+
+### Metrics — `GET /metrics`
+
+Prometheus text format, unauthenticated (that is how Prometheus expects to scrape),
+kept private the same way Postgres is: it is never on the public proxy path — nginx's
+`${APP_HOST}` block only forwards `/api/`, and the default block that catches every
+other Host proxies to the backend but nothing routes `/metrics` there. Point Alloy at
+`pinball-api:8787/metrics` directly on `reverse-proxy-network` (or `internal`, if you
+put Alloy on that network instead); do not publish this port or proxy the path
+publicly.
+
+Everything on it, defined in `src/metrics.ts`:
+
+| Metric | Labels | What it tells you |
+| --- | --- | --- |
+| `http_requests_total` | `method`, `route`, `status_code` | Request rate and error rate (RED). `route` is the matched **pattern** (`/books/:id`), never a raw URL — see below. |
+| `http_request_duration_seconds` | same | Latency histogram; `histogram_quantile` for p50/p95/p99. |
+| `pg_pool_connections` | `state` (`total`/`idle`/`waiting`) | Connection pool pressure — a sustained `waiting > 0` means requests are queueing for a connection. |
+| `pinball_auth_signins_total` | `result` (`success`, `not_allowed`, `unverified_email`, `exchange_failed`, `state_mismatch`, `google_error`) | Sign-in funnel; a spike in anything but `success` is worth alerting on. |
+| `pinball_uploads_total`, `pinball_upload_bytes_total` | `storage` (`local`/`s3`) | Upload volume, useful for catching a storage misconfiguration (driver mismatch) or abuse. |
+| `pinball_publish_actions_total` | `action` (`publish`/`unpublish`) | Publishing activity. |
+| `pinball_questions_created_total` | — | Learning activity, coarse. |
+| `pinball_revisions_total` | `kind` | Same, broken down by revision kind. |
+| `pinball_drill_reviews_total` | `rating` | Drill engagement and how it's going. |
+| `process_*`, `nodejs_*` | — | Standard Node process metrics (CPU, memory, event loop lag, GC, handles) from `collectDefaultMetrics()` — these are the exact names the standard Grafana "Node.js Application Dashboard" (id 11159) expects, so that dashboard works with zero relabeling. |
+
+**Why `route` is a pattern, not a URL:** every HTTP label here comes from a fixed,
+small set of values — `request.routeOptions.url`, the string Fastify matched
+(`/questions/:id`), not `request.url` (which contains a real id). A label with
+unbounded cardinality is how a Prometheus TSDB falls over; nothing in this app ever
+puts a user id, a book id, or free text on a metric label. That detail is what
+`pinball_auth_signins_total`'s `google_error` bucket exists for too — Google's own
+`error` query parameter is free text we do not control, so it collapses to one label
+value on the metric and only appears as real text in the log line next to it.
+
+### Logs
+
+Fastify's built-in Pino logger, JSON to stdout — one object per line, which is what
+`loki.source.docker` / `discovery.docker` + a `json` processing stage in Alloy expects
+with no extra work. Configured in `server.ts`:
+
+- **`service: "pinball-api"`, `env`** on every line — filter to this service first
+  in a multi-service Loki setup.
+- **`userId`** is bound onto the request's logger the moment a session resolves
+  (`auth/session.ts`), so every log line for an authenticated request carries it —
+  request handlers do not pass it around by hand.
+- **`redact`** blanks `req.headers.cookie`, `req.headers.authorization` and
+  `res.headers["set-cookie"]` wherever a log line might include them — the session
+  and OAuth-state cookies are bearer credentials and must never reach a log, even via
+  an incidental full-request dump.
+- A handful of state-changing actions get an explicit `event`-tagged line beyond
+  Fastify's own access log: `event: "auth_signin"` (both outcomes), `event:
+  "book_published"` / `"book_unpublished"`. Add more the same way — `req.log.info({
+  event: '...', ...ids }, 'human sentence')` — for anything else worth grepping for
+  on its own rather than reconstructing from the access log.
+
+**Recommended Loki label vs. structured-metadata split**, since promoting the wrong
+fields to Loki *labels* is what makes a Loki index fall over the same way an
+unbounded Prometheus label does: keep labels to the low-cardinality set —
+
+```
+job, service, env, level
+```
+
+and let everything else (`userId`, `bookId`, `reqId`, `route`, `statusCode`, `event`)
+live as parsed JSON / Loki structured metadata instead. In an Alloy `loki.process`
+component that is a `json` stage extracting fields, a `labels` stage promoting only
+`service`/`env`/`level`, and a `structured_metadata` stage (or just leaving the rest
+in the parsed line) for everything with real ids in it.
+
+**Example LogQL, once `service`/`env` are labels and the rest is parsed JSON:**
+
+```logql
+# Everything from this service
+{service="pinball-api"} | json
+
+# Errors only
+{service="pinball-api"} | json | level="error"
+
+# One person's activity across every request
+{service="pinball-api"} | json | userId="<uuid>"
+
+# Server errors, to correlate with a spike in http_requests_total{status_code=~"5.."}
+{service="pinball-api"} | json | statusCode >= 500
+
+# The sign-in funnel, failures only
+{service="pinball-api"} | json | event="auth_signin" | result!="success"
+
+# Publishing activity
+{service="pinball-api"} | json | event=~"book_published|book_unpublished"
+
+# A specific request end-to-end (grab reqId from any line, e.g. from an error)
+{service="pinball-api"} | json | reqId="req-42"
+```
+
+---
+
 ## Checks after a deploy
 
 ```bash

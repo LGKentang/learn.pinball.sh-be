@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { images, IMAGE_TYPES, MAX_BYTES, SAFE_NAME, typeFor } from '../storage.js';
 import { requireUser } from '../auth/session.js';
 import { count, row } from '../db/index.js';
+import { uploadBytes, uploads as uploadsMetric } from '../metrics.js';
+import { env } from '../env.js';
 
 export async function uploads(app: FastifyInstance) {
   // Raw bytes rather than multipart: the clipboard hands us a Blob, so a plain
@@ -28,6 +30,8 @@ export async function uploads(app: FastifyInstance) {
       'INSERT INTO upload (name, user_id, bytes, content_type) VALUES ($1,$2,$3,$4)',
       [name, req.user!.id, body.length, type],
     );
+    uploadsMetric.inc({ storage: env.storage });
+    uploadBytes.inc({ storage: env.storage }, body.length);
     return reply.code(201).send({ url: `/api/uploads/${name}`, bytes: body.length });
   });
 

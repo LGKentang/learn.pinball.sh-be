@@ -103,6 +103,7 @@ export const RESERVED_HANDLES = new Set([
   'internal', 'private', 'public', 'me', 'my', 'you', 'user', 'users', 'profile', 'about',
   'legal', 'terms', 'privacy', 'security', 'abuse', 'postmaster', 'webmaster', 'hostmaster',
   'pinball', 'learn', 'graph', 'book', 'books', 'question', 'questions', 'drill', 'map',
+  'metrics', 'monitor', 'monitoring', 'grafana', 'loki', 'prometheus', 'alloy',
 ]);
 
 export const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;

@@ -8,11 +8,24 @@ import { sessionPlugin } from './auth/session.js';
 import { migrate, pool } from './db/index.js';
 import { purgeExpiredSessions } from './db/users.js';
 import { assertBootable, env, isProduction } from './env.js';
+import { httpMetricsPlugin, metricsRoute } from './metrics.js';
 
 assertBootable();
 
 const app = Fastify({
-  logger: { level: process.env.LOG_LEVEL ?? 'info' },
+  logger: {
+    level: process.env.LOG_LEVEL ?? 'info',
+    // Every line carries these, so a multi-service Loki setup can filter to this
+    // one with `{service="pinball-api"}` before doing anything else.
+    base: { service: 'pinball-api', env: process.env.NODE_ENV ?? 'development' },
+    // The session and OAuth-state cookies are bearer credentials; nothing that
+    // logs a request (Fastify's own access log included) should ever be able to
+    // put one in a log line, even by accident via a generic header dump.
+    redact: {
+      paths: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
+      censor: '[redacted]',
+    },
+  },
   // Cloudflare and nginx both sit in front in production. Without this, every
   // request looks like it came from the proxy and req.protocol is always http.
   trustProxy: true,
@@ -20,11 +33,16 @@ const app = Fastify({
 
 await app.register(cookie, { secret: env.sessionSecret });
 sessionPlugin(app);
+httpMetricsPlugin(app);
 
 app.get('/health', async () => {
   await pool.query('SELECT 1');
   return { ok: true, storage: env.storage, domain: env.baseDomain };
 });
+
+// Unauthenticated by design (Prometheus scrapes it), kept private by never being
+// on the public proxy path — see the comment at the top of metrics.ts.
+metricsRoute(app);
 
 await app.register(auth, { prefix: '/api' });
 await app.register(api, { prefix: '/api' });

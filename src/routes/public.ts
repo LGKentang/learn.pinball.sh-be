@@ -7,7 +7,7 @@
  * way to be sure a draft never leaks through a cache.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { env } from '../env.js';
+import { env, HANDLE_RE } from '../env.js';
 import { publicBook, publicBooks, publicProfile, publicTree } from '../db/users.js';
 import { imageUrl } from '../storage.js';
 import { excerpt, escapeHtml, renderMarkdown } from '../render/markdown.js';
@@ -30,8 +30,10 @@ export function handleFromHost(hostHeader: string | undefined): string | null {
     return local ? local[1] : null;
   }
   const label = host.slice(0, -suffix.length);
-  if (!label || label.includes('.')) return null;
-  return label;
+  // Same shape a handle was validated against at claim time (env.ts HANDLE_RE) — a
+  // label that could never have been claimed can only ever miss in publicProfile,
+  // but there is no reason to let anything past this that is not even shaped right.
+  return HANDLE_RE.test(label) ? label : null;
 }
 
 /** Same reason as escapeHtml: timestamptz arrives as a Date, not a string. */
