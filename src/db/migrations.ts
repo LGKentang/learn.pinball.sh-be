@@ -171,4 +171,23 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS review_by_question   ON review (question_id, reviewed_at);
     `,
   },
+  {
+    id: '002_library',
+    sql: /* sql */ `
+      -- A Library is an optional, named shelf a user can group their Books onto
+      -- (SCHEMA.md D15). A Book sits on at most one shelf at a time; deleting a
+      -- Library unshelves its Books rather than deleting them.
+      CREATE TABLE IF NOT EXISTS library (
+        id         TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        title      TEXT NOT NULL CHECK (length(btrim(title)) > 0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS library_by_user ON library (user_id, updated_at DESC);
+
+      ALTER TABLE book ADD COLUMN IF NOT EXISTS library_id TEXT REFERENCES library(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS book_by_library ON book (library_id);
+    `,
+  },
 ];

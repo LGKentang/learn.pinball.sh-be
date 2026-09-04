@@ -10,6 +10,7 @@ import {
   applyRating,
   nextReviewAt,
   type Book,
+  type Library,
   type Question,
   type Rating,
   type RelationKind,
@@ -20,15 +21,20 @@ import {
 
 /* ---------------------------------------------------------------------- books */
 
-export type BookSummary = Book & { question_count: number; open_count: number };
+export type BookSummary = Book & {
+  question_count: number;
+  open_count: number;
+  library_title: string | null;
+};
 
 export function listBooks(userId: string): Promise<BookSummary[]> {
   return rows<BookSummary>(
-    `SELECT b.*,
+    `SELECT b.*, l.title AS library_title,
             (SELECT count(*) FROM question q WHERE q.book_id = b.id) AS question_count,
             (SELECT count(*) FROM question q WHERE q.book_id = b.id
                AND q.state = 'unexplored' AND q.parked_at IS NULL) AS open_count
        FROM book b
+       LEFT JOIN library l ON l.id = b.library_id
       WHERE b.user_id = $1 AND b.archived_at IS NULL
       ORDER BY b.updated_at DESC`,
     [userId],
@@ -43,31 +49,86 @@ export function createBook(
   userId: string,
   title: string,
   intent: string | null,
+  libraryId: string | null = null,
 ): Promise<Book | undefined> {
   return row<Book>(
-    `INSERT INTO book (id, user_id, title, intent) VALUES ($1,$2,$3,$4) RETURNING *`,
-    [newId(), userId, title, intent],
+    `INSERT INTO book (id, user_id, title, intent, library_id)
+     SELECT $1, $2, $3, $4, $5::text
+      WHERE $5::text IS NULL OR EXISTS (SELECT 1 FROM library l WHERE l.id = $5::text AND l.user_id = $2)
+     RETURNING *`,
+    [newId(), userId, title, intent, libraryId],
   );
 }
 
 export function updateBook(
   userId: string,
   id: string,
-  patch: { title?: string; intent?: string | null },
+  patch: { title?: string; intent?: string | null; library_id?: string | null },
 ): Promise<Book | undefined> {
   return row<Book>(
     `UPDATE book
         SET title = coalesce($3, title),
             intent = CASE WHEN $4 THEN $5 ELSE intent END,
+            library_id = CASE WHEN $6 THEN $7::text ELSE library_id END,
             updated_at = now()
       WHERE id = $1 AND user_id = $2
+        AND ($6 = false OR $7::text IS NULL
+             OR EXISTS (SELECT 1 FROM library l WHERE l.id = $7::text AND l.user_id = $2))
       RETURNING *`,
-    [id, userId, patch.title ?? null, 'intent' in patch, patch.intent ?? null],
+    [
+      id,
+      userId,
+      patch.title ?? null,
+      'intent' in patch,
+      patch.intent ?? null,
+      'library_id' in patch,
+      patch.library_id ?? null,
+    ],
   );
 }
 
 export async function deleteBook(userId: string, id: string): Promise<boolean> {
   return (await count('DELETE FROM book WHERE id = $1 AND user_id = $2', [id, userId])) > 0;
+}
+
+/* ------------------------------------------------------------------- libraries */
+
+export type LibrarySummary = Library & { book_count: number };
+
+export function listLibraries(userId: string): Promise<LibrarySummary[]> {
+  return rows<LibrarySummary>(
+    `SELECT l.*, (SELECT count(*) FROM book b WHERE b.library_id = l.id) AS book_count
+       FROM library l
+      WHERE l.user_id = $1
+      ORDER BY l.updated_at DESC`,
+    [userId],
+  );
+}
+
+export function createLibrary(userId: string, title: string): Promise<Library | undefined> {
+  return row<Library>(
+    `INSERT INTO library (id, user_id, title) VALUES ($1,$2,$3) RETURNING *`,
+    [newId(), userId, title],
+  );
+}
+
+export function updateLibrary(
+  userId: string,
+  id: string,
+  patch: { title?: string },
+): Promise<Library | undefined> {
+  return row<Library>(
+    `UPDATE library
+        SET title = coalesce($3, title),
+            updated_at = now()
+      WHERE id = $1 AND user_id = $2
+      RETURNING *`,
+    [id, userId, patch.title ?? null],
+  );
+}
+
+export async function deleteLibrary(userId: string, id: string): Promise<boolean> {
+  return (await count('DELETE FROM library WHERE id = $1 AND user_id = $2', [id, userId])) > 0;
 }
 
 /* ------------------------------------------------------------------- questions */

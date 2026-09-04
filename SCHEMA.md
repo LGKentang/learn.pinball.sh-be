@@ -230,6 +230,23 @@ abuse surface before it is a growth channel. An address gets in via
 
 Existing users are never re-checked: once in, they stay in.
 
+### D15. A Book sits on at most one Library, never more
+
+`library` groups Books the way a shelf groups books: `book.library_id` is a nullable
+FK, not a join table. A book with no library is simply unsorted, not an error state.
+
+This doesn't change D11 — `book.user_id` is still the enforced ownership boundary for
+everything below it, and Library sits *beside* that chain rather than replacing it.
+Assigning a `library_id` is checked in the same query that writes it (an `EXISTS`
+against `library.user_id`), so pointing a book at someone else's library fails the
+same way every other ownership guard in this codebase does: no row, not an error.
+
+Deleting a Library sets `library_id` back to null on its books (`ON DELETE SET NULL`)
+rather than deleting them — a shelf coming down doesn't burn the books on it.
+
+No publishing at the Library level yet. D12 is about one Book on one subdomain path;
+a Library-level index page is a real design question of its own, left for later.
+
 ---
 
 ## Schema
@@ -264,11 +281,20 @@ CREATE TABLE user_session (
 
 CREATE TABLE signup_allowlist (email TEXT PRIMARY KEY, note TEXT);
 
+CREATE TABLE library (        -- a named shelf of books, optional (D15)
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  title      TEXT NOT NULL CHECK (length(btrim(title)) > 0),
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE book (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,  -- D11
   title        TEXT NOT NULL CHECK (length(btrim(title)) > 0),
   intent       TEXT,             -- Learning Intent; nullable so creation stays frictionless
+  library_id   TEXT REFERENCES library(id) ON DELETE SET NULL,  -- D15, null = unsorted
   slug         TEXT,             -- URL segment on the published site
   published_at TIMESTAMPTZ,      -- null = private. The whole publishing switch (D12)
   created_at   TIMESTAMPTZ NOT NULL,
@@ -277,6 +303,7 @@ CREATE TABLE book (
   CHECK (published_at IS NULL OR slug IS NOT NULL)
 );
 CREATE UNIQUE INDEX book_slug_per_user ON book (user_id, slug) WHERE slug IS NOT NULL;
+CREATE INDEX book_by_library ON book (library_id);
 
 CREATE TABLE question (
   id             TEXT PRIMARY KEY,
@@ -427,3 +454,5 @@ SELECT id, title, state FROM question
 6. Nothing in `routes/public.ts` consults `req.user`. A published page renders
    identically for its author and for a stranger — the only way to be certain a
    draft cannot leak through a cache.
+7. Deleting a library sets `library_id` to null on its books; it never deletes them
+   (D15).

@@ -7,7 +7,7 @@ flashcard system.
 - Product spec: `PRODUCT.md` — read it before changing product behaviour. It is not
   loaded automatically.
 - Data model, and the decisions that resolve the spec's open questions: `SCHEMA.md`.
-  Decisions there are numbered `D1`–`D14`; cite them when changing behaviour they cover.
+  Decisions there are numbered `D1`–`D15`; cite them when changing behaviour they cover.
 - Cloudflare DNS/TLS, the Google OAuth client, the S3 bucket policy, and the env
   reference: `DEPLOY.md`.
 
@@ -36,6 +36,9 @@ Each has its own history. Never stage or commit across both in one operation.
 
 - **Backend:** Node 24, TypeScript, Fastify, **PostgreSQL** via `pg` (D9).
   `docker compose up -d db` gives you one locally.
+- **Organizing books:** a Book can sit on one optional `Library` shelf
+  (`book.library_id`, D15) — never more than one, and deleting a library unshelves
+  its books rather than deleting them.
 - **Frontend:** Vite, React 19, TypeScript. Plain CSS, no UI framework. CodeMirror 6
   powers the live-preview markdown editor.
 - **Auth:** Google OAuth, authorization-code flow, server-side session in an httpOnly

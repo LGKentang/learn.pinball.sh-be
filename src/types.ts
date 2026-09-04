@@ -75,11 +75,22 @@ export interface Book {
   user_id: string;
   title: string;
   intent: string | null;
+  /** The shelf this book sits on, if any (SCHEMA.md D15). Null means unsorted. */
+  library_id: string | null;
   slug: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+}
+
+/** A named shelf a user can group their Books onto (SCHEMA.md D15). */
+export interface Library {
+  id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Question {

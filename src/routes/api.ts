@@ -49,7 +49,10 @@ export async function api(app: FastifyInstance) {
     const body = req.body as Record<string, unknown>;
     const title = text(body?.title);
     if (!title) return reply.code(400).send({ error: 'title is required' });
-    return reply.code(201).send(await q.createBook(req.user!.id, title, text(body?.intent)));
+    const libraryId = text(body?.library_id);
+    const created = await q.createBook(req.user!.id, title, text(body?.intent), libraryId);
+    if (!created) return reply.code(400).send({ error: 'library not found' });
+    return reply.code(201).send(created);
   });
 
   app.get('/books/:id', async (req, reply) => {
@@ -68,20 +71,52 @@ export async function api(app: FastifyInstance) {
   app.patch('/books/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
-    const patch: { title?: string; intent?: string | null } = {};
+    const patch: { title?: string; intent?: string | null; library_id?: string | null } = {};
     if ('title' in body) {
       const t = text(body.title);
       if (!t) return reply.code(400).send({ error: 'title cannot be empty' });
       patch.title = t;
     }
     if ('intent' in body) patch.intent = text(body.intent);
+    if ('library_id' in body) patch.library_id = text(body.library_id);
     const updated = await q.updateBook(req.user!.id, id, patch);
-    return updated ?? reply.code(404).send({ error: 'not found' });
+    return updated ?? reply.code(404).send({ error: 'not found or library not yours' });
   });
 
   app.delete('/books/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     return (await q.deleteBook(req.user!.id, id))
+      ? reply.code(204).send()
+      : reply.code(404).send({ error: 'not found' });
+  });
+
+  /* ------------------------------------------------------------- libraries */
+
+  app.get('/libraries', async (req) => q.listLibraries(req.user!.id));
+
+  app.post('/libraries', async (req, reply) => {
+    const body = req.body as Record<string, unknown>;
+    const title = text(body?.title);
+    if (!title) return reply.code(400).send({ error: 'title is required' });
+    return reply.code(201).send(await q.createLibrary(req.user!.id, title));
+  });
+
+  app.patch('/libraries/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as Record<string, unknown>;
+    const patch: { title?: string } = {};
+    if ('title' in body) {
+      const t = text(body.title);
+      if (!t) return reply.code(400).send({ error: 'title cannot be empty' });
+      patch.title = t;
+    }
+    const updated = await q.updateLibrary(req.user!.id, id, patch);
+    return updated ?? reply.code(404).send({ error: 'not found' });
+  });
+
+  app.delete('/libraries/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    return (await q.deleteLibrary(req.user!.id, id))
       ? reply.code(204).send()
       : reply.code(404).send({ error: 'not found' });
   });
