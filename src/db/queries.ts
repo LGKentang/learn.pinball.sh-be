@@ -100,7 +100,7 @@ export function listLibraries(userId: string): Promise<LibrarySummary[]> {
     `SELECT l.*, (SELECT count(*) FROM book b WHERE b.library_id = l.id) AS book_count
        FROM library l
       WHERE l.user_id = $1
-      ORDER BY l.updated_at DESC`,
+      ORDER BY l.favorite DESC, l.updated_at DESC`,
     [userId],
   );
 }
@@ -115,15 +115,16 @@ export function createLibrary(userId: string, title: string): Promise<Library | 
 export function updateLibrary(
   userId: string,
   id: string,
-  patch: { title?: string },
+  patch: { title?: string; favorite?: boolean },
 ): Promise<Library | undefined> {
   return row<Library>(
     `UPDATE library
         SET title = coalesce($3, title),
+            favorite = CASE WHEN $4 THEN $5 ELSE favorite END,
             updated_at = now()
       WHERE id = $1 AND user_id = $2
       RETURNING *`,
-    [id, userId, patch.title ?? null],
+    [id, userId, patch.title ?? null, 'favorite' in patch, patch.favorite ?? null],
   );
 }
 

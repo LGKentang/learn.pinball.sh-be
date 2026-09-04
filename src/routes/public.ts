@@ -68,6 +68,53 @@ ${body}
 </div>`;
 }
 
+/**
+ * Progressive enhancement for the book layout's view toggle: without this running
+ * (JS off or blocked), the page is exactly the old single-scroll article list —
+ * the toggle is simply invisible (see `.js .view-toggle` in page.ts) and every
+ * table-of-contents link still jumps to its section via a plain #anchor.
+ */
+const bookLayoutScript = `<script>(function(){
+  var root = document.querySelector('.book-layout');
+  if (!root) return;
+  var toggle = root.querySelector('.view-toggle');
+  var articles = Array.prototype.slice.call(root.querySelectorAll('.book-content > article'));
+  var links = Array.prototype.slice.call(root.querySelectorAll('.toc a'));
+  var KEY = 'pinball:bookViewMode';
+
+  function currentArticle() {
+    var byHash = articles.filter(function(a){ return '#' + a.id === location.hash; })[0];
+    return byHash || articles[0];
+  }
+
+  function showCurrent() {
+    var cur = currentArticle();
+    articles.forEach(function(a){ a.classList.toggle('current', a === cur); });
+    links.forEach(function(l){ l.classList.toggle('on', l.getAttribute('href') === '#' + cur.id); });
+  }
+
+  function applyMode(mode) {
+    root.classList.toggle('segmented', mode === 'segment');
+    Array.prototype.forEach.call(toggle.querySelectorAll('button'), function(b){
+      b.classList.toggle('on', b.dataset.mode === mode);
+    });
+    try { localStorage.setItem(KEY, mode); } catch (e) {}
+    if (mode === 'segment') showCurrent();
+  }
+
+  toggle.addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-mode]');
+    if (btn) applyMode(btn.dataset.mode);
+  });
+  window.addEventListener('hashchange', function(){
+    if (root.classList.contains('segmented')) showCurrent();
+  });
+
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  applyMode(saved === 'segment' ? 'segment' : 'all');
+})();</script>`;
+
 function notFound(reply: FastifyReply, handle: string | null, message: string) {
   const body = `<h1>Nothing here</h1><p class="intent">${escapeHtml(message)}</p>`;
   return reply
@@ -202,14 +249,45 @@ ${list}`;
       )
       .join('\n');
 
+    // A sidebar table of contents, mirroring the same depth the articles use, plus
+    // an "all sections / one at a time" toggle. The toggle is pure enhancement
+    // (see bookLayoutScript): every link here is a plain #q-<id> anchor, so jumping
+    // to a section works with JavaScript off too — it just leaves every other
+    // section on the page instead of hiding them.
+    const toc = tree
+      .map(
+        (n) =>
+          `<li class="d${Math.min(n.depth + 1, 6)}"><a href="#q-${escapeHtml(n.id)}">${escapeHtml(n.title)}</a></li>`,
+      )
+      .join('\n');
+
     const siteUrl = `https://${handle}.${env.baseDomain}`;
     const description =
       book.intent ?? excerpt(tree[0]?.understanding) ?? `${book.title} — a Pinball Learn book.`;
 
+    const main = tree.length
+      ? `<div class="book-layout">
+  <nav class="toc" aria-label="Sections">
+    <div class="toc-head">
+      <span>Sections</span>
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <button type="button" class="on" data-mode="all">All</button>
+        <button type="button" data-mode="segment">By section</button>
+      </div>
+    </div>
+    <ol>${toc}</ol>
+  </nav>
+  <div class="book-content">
+${articles}
+  </div>
+</div>
+${bookLayoutScript}`
+      : '<div class="empty">This book has no answered questions yet.</div>';
+
     const body = `<p class="meta">${escapeHtml(profile.name ?? handle)} · published ${escapeHtml(dateLabel(book.published_at))}</p>
 <h1>${escapeHtml(book.title)}</h1>
 ${book.intent ? `<p class="intent">${escapeHtml(book.intent)}</p>` : ''}
-${tree.length ? articles : '<div class="empty">This book has no answered questions yet.</div>'}`;
+${main}`;
 
     return cacheable(reply).send(
       page(

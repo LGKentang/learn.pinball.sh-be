@@ -104,12 +104,13 @@ export async function api(app: FastifyInstance) {
   app.patch('/libraries/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
-    const patch: { title?: string } = {};
+    const patch: { title?: string; favorite?: boolean } = {};
     if ('title' in body) {
       const t = text(body.title);
       if (!t) return reply.code(400).send({ error: 'title cannot be empty' });
       patch.title = t;
     }
+    if ('favorite' in body) patch.favorite = body.favorite === true;
     const updated = await q.updateLibrary(req.user!.id, id, patch);
     return updated ?? reply.code(404).send({ error: 'not found' });
   });

@@ -190,4 +190,12 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS book_by_library ON book (library_id);
     `,
   },
+  {
+    id: '003_library_favorite',
+    sql: /* sql */ `
+      -- Pinning a library keeps it out of the scroll once someone has more than a
+      -- handful — favorites sort first, everything else stays ordered by recency.
+      ALTER TABLE library ADD COLUMN IF NOT EXISTS favorite BOOLEAN NOT NULL DEFAULT false;
+    `,
+  },
 ];

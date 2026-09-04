@@ -1,9 +1,12 @@
 /**
  * The HTML shell for published pages.
  *
- * Self-contained on purpose: one document, inline CSS, no JavaScript and no build
- * step. A published site is somebody's writing on the open web — it should render
- * on a slow connection, in a reader mode, and long after the SPA has been rebuilt.
+ * Self-contained on purpose: one document, inline CSS, no build step. A published
+ * site is somebody's writing on the open web — it should render on a slow
+ * connection, in a reader mode, and long after the SPA has been rebuilt. The one
+ * script here just flips a `js` class for progressive enhancement (see the book
+ * page's table-of-contents toggle in routes/public.ts) — with it disabled or
+ * blocked, every page still renders and reads exactly as it would otherwise.
  */
 import { escapeHtml } from './markdown.js';
 
@@ -59,6 +62,42 @@ h1{font-size:2rem; line-height:1.2; margin:.4rem 0 .5rem; letter-spacing:-.02em}
 .books a.card:hover{border-color:var(--accent); text-decoration:none; background:var(--panel-2)}
 .books h2{margin:0 0 .3rem; font-size:1.1rem}
 .books p{margin:0; color:var(--dim); font-size:.94rem}
+/* two-column layout for a book with a table of contents; :has() only widens the
+   wrapper on pages that actually have one, so every other page is unaffected */
+.wrap:has(.book-layout){max-width:64rem}
+.book-layout{display:grid; grid-template-columns:15rem 1fr; gap:3rem; align-items:start}
+.toc{position:sticky; top:5.5rem; font-size:.86rem; min-width:0}
+.toc-head{display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.7rem}
+.toc-head>span{font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--dimmer)}
+.view-toggle{display:flex; gap:2px; padding:2px; background:var(--panel); border:1px solid var(--line); border-radius:7px}
+.view-toggle button{
+  background:none; border:none; color:var(--dim); font-size:11px; padding:3px 8px;
+  border-radius:5px; cursor:pointer; font-family:inherit;
+}
+.view-toggle button.on{background:var(--panel-2); color:var(--text)}
+/* inert without JS (see the script at the end of a book page) — harmless, the
+   page just stays in its default "all sections" reading view */
+.view-toggle{visibility:hidden}
+.js .view-toggle{visibility:visible}
+.toc ol{list-style:none; margin:0; padding:0; display:grid; gap:.15rem}
+.toc a{
+  display:block; padding:.32rem .55rem; border-radius:6px; color:var(--dim);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.toc a:hover{color:var(--text); text-decoration:none; background:var(--panel-2)}
+.toc a.on{color:var(--accent); background:var(--panel-2)}
+.toc li.d2 a,.toc li.d3 a{padding-left:1.15rem; font-size:.82rem}
+.toc li.d4 a,.toc li.d5 a,.toc li.d6 a{padding-left:1.75rem; font-size:.8rem}
+.book-content{min-width:0}
+.book-layout.segmented .book-content>article{display:none}
+.book-layout.segmented .book-content>article.current{display:block}
+@media (max-width:900px){
+  .book-layout{grid-template-columns:1fr}
+  .toc{
+    position:static; margin-bottom:2rem; border:1px solid var(--line); border-radius:10px;
+    padding:1rem 1.1rem; background:var(--panel);
+  }
+}
 article{border-top:1px solid var(--line); padding-top:2rem; margin-top:2rem}
 article:first-of-type{border-top:0; margin-top:0}
 article h2{
@@ -121,6 +160,7 @@ export function page(meta: PageMeta, body: string): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>document.documentElement.classList.add('js')</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${t}</title>
 <meta name="description" content="${d}">

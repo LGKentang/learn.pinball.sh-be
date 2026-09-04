@@ -89,6 +89,7 @@ export interface Library {
   id: string;
   user_id: string;
   title: string;
+  favorite: boolean;
   created_at: string;
   updated_at: string;
 }
