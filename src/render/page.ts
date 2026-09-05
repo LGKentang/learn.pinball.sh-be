@@ -116,6 +116,34 @@ article.d4 h2,article.d5 h2,article.d6 h2{font-size:1rem}
 .body ul,.body ol{margin:0 0 1rem; padding-left:1.35rem}
 .body li{margin:.25rem 0}
 .body img{max-width:100%; height:auto; border-radius:8px; border:1px solid var(--line); display:block; margin:1rem 0}
+.body img{cursor:zoom-in}
+
+/* lightbox */
+.lb{position:fixed; inset:0; z-index:60; display:none; background:rgba(6,8,12,.93); -webkit-backdrop-filter:blur(5px); backdrop-filter:blur(5px)}
+.lb.on{display:block}
+.lb-stage{position:absolute; inset:0; overflow:hidden; display:grid; place-items:center; touch-action:none}
+.lb-stage img{
+  max-width:92vw; max-height:86vh; display:block; border-radius:6px;
+  transform-origin:center center; will-change:transform; cursor:zoom-in;
+  box-shadow:0 30px 90px rgba(0,0,0,.65); -webkit-user-select:none; user-select:none; -webkit-user-drag:none;
+}
+.lb.zoomed .lb-stage img{cursor:grab}
+.lb.panning .lb-stage img{cursor:grabbing}
+.lb-close{
+  position:absolute; top:12px; right:14px; z-index:2; width:38px; height:38px; border-radius:50%;
+  background:rgba(255,255,255,.08); border:1px solid var(--line); color:var(--text);
+  font-size:17px; line-height:1; cursor:pointer;
+}
+.lb-close:hover{background:rgba(255,255,255,.16)}
+.lb-bar{
+  position:absolute; left:0; right:0; bottom:0; padding:14px 18px 18px; z-index:2;
+  text-align:center; pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(6,8,12,.75));
+}
+.lb-cap{margin:0 0 4px; color:var(--text); font-size:13.5px; line-height:1.4}
+.lb-hint{margin:0; color:var(--dimmer); font-family:var(--mono); font-size:11px; letter-spacing:.05em}
+@media (max-width:640px){ .lb-hint{display:none} }
+@media print{ .lb{display:none !important} }
 .body code{
   font-family:var(--mono); font-size:.86em; background:var(--panel-2);
   border:1px solid var(--line); border-radius:4px; padding:.1em .35em;
@@ -181,6 +209,161 @@ ${modified ? `<meta property="article:modified_time" content="${modified}">` : '
 </head>
 <body>
 ${body}
+
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="Image viewer" hidden>
+  <button class="lb-close" type="button" aria-label="Close image">&#10005;</button>
+  <div class="lb-stage"><img alt=""></div>
+  <div class="lb-bar"><p class="lb-cap"></p><p class="lb-hint">scroll to zoom &middot; drag to pan &middot; double-click to reset &middot; esc to close</p></div>
+</div>
+<script>
+/* Click an image to see it full size. Zoom with the wheel or a pinch, anchored on
+   the pointer so whatever you are looking at stays under it; drag to pan.
+
+   This is the only JavaScript on a published page and everything above it renders
+   without it, which keeps the promise in D12 mostly intact: the page is readable
+   with scripting off, it just is not zoomable. If a CSP is ever added in front of
+   these pages, this block needs a nonce. */
+(function () {
+  var lb = document.getElementById('lb');
+  if (!lb) return;
+  var stage = lb.querySelector('.lb-stage');
+  var pic = stage.querySelector('img');
+  var cap = lb.querySelector('.lb-cap');
+  var closeBtn = lb.querySelector('.lb-close');
+
+  var MIN = 1, MAX = 8;
+  var scale = 1, tx = 0, ty = 0;
+  var opener = null;
+  var pointers = new Map();
+  var pinchFrom = 0, scaleFrom = 1, panFrom = null;
+
+  function apply() {
+    pic.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+    lb.classList.toggle('zoomed', scale > 1);
+  }
+
+  function reset() { scale = 1; tx = 0; ty = 0; apply(); }
+
+  /* Keep the point under the cursor fixed while the scale changes, so zooming
+     feels like moving toward what you pointed at rather than toward the middle. */
+  function zoomAt(cx, cy, factor) {
+    var next = Math.min(MAX, Math.max(MIN, scale * factor));
+    if (next === scale) return;
+    var r = stage.getBoundingClientRect();
+    var px = cx - r.left - r.width / 2;
+    var py = cy - r.top - r.height / 2;
+    tx = px - (px - tx) * (next / scale);
+    ty = py - (py - ty) * (next / scale);
+    scale = next;
+    if (scale === MIN) { tx = 0; ty = 0; }
+    apply();
+  }
+
+  function open(src, alt) {
+    opener = document.activeElement;
+    pic.src = src;
+    pic.alt = alt || '';
+    cap.textContent = alt || '';
+    cap.style.display = alt ? '' : 'none';
+    reset();
+    lb.hidden = false;
+    lb.classList.add('on');
+    document.body.style.overflow = 'hidden';
+    closeBtn.focus();
+  }
+
+  function close() {
+    lb.classList.remove('on', 'zoomed', 'panning');
+    lb.hidden = true;
+    document.body.style.overflow = '';
+    pic.removeAttribute('src');
+    if (opener && opener.focus) opener.focus();
+    opener = null;
+  }
+
+  /* Delegated, so it costs nothing per image and works for any that arrive later. */
+  document.addEventListener('click', function (e) {
+    var img = e.target && e.target.closest ? e.target.closest('.body img') : null;
+    if (!img) return;
+    e.preventDefault();
+    open(img.currentSrc || img.src, img.getAttribute('alt'));
+  });
+
+  closeBtn.addEventListener('click', close);
+
+  /* Anything that is not the picture itself is the backdrop. */
+  lb.addEventListener('click', function (e) {
+    if (e.target === lb || e.target === stage) close();
+  });
+
+  stage.addEventListener('dblclick', function (e) {
+    e.preventDefault();
+    if (scale > 1) reset(); else zoomAt(e.clientX, e.clientY, 2.5);
+  });
+
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.16 : 1 / 1.16);
+  }, { passive: false });
+
+  /* Pointer events rather than mouse plus touch, so one path covers dragging with
+     a mouse and pinching with two fingers. */
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.target !== pic) return;
+    stage.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1 && scale > 1) {
+      panFrom = { x: e.clientX - tx, y: e.clientY - ty };
+      lb.classList.add('panning');
+    } else if (pointers.size === 2) {
+      var p = Array.from(pointers.values());
+      pinchFrom = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      scaleFrom = scale;
+      panFrom = null;
+      lb.classList.remove('panning');
+    }
+  });
+
+  stage.addEventListener('pointermove', function (e) {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size === 2 && pinchFrom > 0) {
+      var p = Array.from(pointers.values());
+      var now = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      var mx = (p[0].x + p[1].x) / 2;
+      var my = (p[0].y + p[1].y) / 2;
+      var want = Math.min(MAX, Math.max(MIN, scaleFrom * (now / pinchFrom)));
+      zoomAt(mx, my, want / scale);
+      return;
+    }
+
+    if (panFrom) {
+      tx = e.clientX - panFrom.x;
+      ty = e.clientY - panFrom.y;
+      apply();
+    }
+  });
+
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchFrom = 0;
+    if (pointers.size === 0) { panFrom = null; lb.classList.remove('panning'); }
+  }
+  stage.addEventListener('pointerup', release);
+  stage.addEventListener('pointercancel', release);
+
+  document.addEventListener('keydown', function (e) {
+    if (lb.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomAt(innerWidth / 2, innerHeight / 2, 1.25); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomAt(innerWidth / 2, innerHeight / 2, 1 / 1.25); }
+    else if (e.key === '0') { e.preventDefault(); reset(); }
+    /* Only one control in here, so Tab has nowhere else to go. */
+    else if (e.key === 'Tab') { e.preventDefault(); closeBtn.focus(); }
+  });
+})();
+</script>
 </body>
 </html>`;
 }
